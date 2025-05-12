@@ -128,10 +128,8 @@ class OBIVWAPStrategy:
         for row in df.iter_rows(named=True):
             if row["Signal"] == 1 and self.cash >= row["ASK"] * 100 and self.position <= 1:
                 self.position = 100
-                self.cash -= row["ASK"] * 100
             elif row["Signal"] == -1 and self.position > -1:
                 self.position = -100
-                self.cash += row["BID"] * 100
             elif row["Signal"] == 0 and self.position != 0:
                 if self.position > 0:
                     self.cash += row["BID"] * self.position
