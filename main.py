@@ -10,8 +10,10 @@ VWAP_WINDOW = 20  # Rolling window size for VWAP calculation
 OBI_THRESHOLD = 0.05  # Threshold for Order Book Imbalance (OBI) signals
 EX_FILTER = "Q"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
+START_TIME = (9, 30, 865)  # Start time for generating signals (HH, MM, MS)
+END_TIME = (16, 28, 954)  # End time for generating signals (HH, MM, MS)
 
-DATA_FILE = "./data/3_stock_trading_hrs.csv"
+DATA_FILE = "./data/3_stock_5_trading_days.csv"
 
 """
 Main script for running the high-frequency trading analysis.
@@ -50,7 +52,12 @@ if __name__ == "__main__":
         ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
 
         # Apply strategy
-        strategy = OBIVWAPStrategy(vwap_window=VWAP_WINDOW, obi_threshold=OBI_THRESHOLD)
+        strategy = OBIVWAPStrategy(
+            vwap_window=VWAP_WINDOW, 
+            obi_threshold=OBI_THRESHOLD, 
+            start_time=START_TIME, 
+            end_time=END_TIME
+        )
         ticker_data = strategy.generate_signals(ticker_data)
         backtest_data = strategy.backtest(ticker_data)
 
