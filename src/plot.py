@@ -18,4 +18,3 @@ def plot_account_balance(backtest_data: pl.DataFrame):
         plt.title(f"Account Balance for {ticker}")
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
         plt.xticks(rotation=45)
-        # Do not call plt.show() here

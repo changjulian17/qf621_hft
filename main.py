@@ -12,9 +12,6 @@ OBI_THRESHOLD = 0.05  # Threshold for Order Book Imbalance (OBI) signals
 EX_FILTER = "Q"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
 
-# List of stock tickers to analyze
-STOCK_TICKERS = ["AAPL", "TSLA", "NVDA"]  # Example tickers
-print(os.getcwd())
 DATA_FILE = "./data/3_stock_trading_hrs.csv"
 
 if __name__ == "__main__":
