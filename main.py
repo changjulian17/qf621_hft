@@ -14,7 +14,7 @@ QU_COND_FILTER = "R"  # Quote condition filter
 
 # List of stock tickers to analyze
 STOCK_TICKERS = ["AAPL", "TSLA", "NVDA"]  # Example tickers
-DATA_FILE = "./QF621_Quant_Trading_Strats/order_rebalancing/data/3_stock_24hrs.csv"
+DATA_FILE = "./QF621_Quant_Trading_Strats/order_rebalancing/data/3_stock_trading_hrs.csv"
 
 if __name__ == "__main__":
     for ticker in STOCK_TICKERS:
