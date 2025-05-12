@@ -12,6 +12,8 @@ class OBIVWAPStrategy:
             Rolling window size for VWAP calculation.
         obi_threshold (float): 
             Threshold for Order Book Imbalance (OBI) signals.
+        size_threshold (int): 
+            Minimum size threshold for bid and ask sizes.
         start_time (tuple): 
             The earliest time (HH, MM, MS) for generating signals.
         end_time (tuple): 
@@ -25,20 +27,23 @@ class OBIVWAPStrategy:
         backtest(data: pl.DataFrame) -> pl.DataFrame:
             Simulates the strategy on historical data and returns performance metrics.
     """
-    def __init__(self, vwap_window: int, obi_threshold: float, initial_cash: float = 100_000, 
-                 start_time: tuple = (9, 30, 865), end_time: tuple = (16, 28, 954)):
+    def __init__(self, vwap_window: int, obi_threshold: float, size_threshold: int = 3, 
+                 initial_cash: float = 100_000, start_time: tuple = (9, 30, 865), 
+                 end_time: tuple = (16, 28, 954)):
         """
         Initializes the OBIVWAPStrategy with the specified parameters.
 
         Args:
             vwap_window (int): Rolling window size for VWAP calculation.
             obi_threshold (float): Threshold for Order Book Imbalance (OBI) signals.
+            size_threshold (int): Minimum size threshold for bid and ask sizes. Default is 3.
             initial_cash (float): Initial cash balance for the strategy. Default is 100,000.
             start_time (tuple): The earliest time (HH, MM, MS) for generating signals.
             end_time (tuple): The latest time (HH, MM, MS) for generating signals.
         """
         self.vwap_window = vwap_window
         self.obi_threshold = obi_threshold
+        self.size_threshold = size_threshold
         self.cash = initial_cash
         self.position = 0
         self.account_balance = []
@@ -91,9 +96,17 @@ class OBIVWAPStrategy:
         df = self.calculate_vwap(df)
         df = self.calculate_obi(df)
         df = df.with_columns(
-            pl.when(pl.col("OBI") > self.obi_threshold)
+            pl.when(
+            (pl.col("OBI") > self.obi_threshold) & 
+            (pl.col("BIDSIZ") >= self.size_threshold) & 
+            (pl.col("ASKSIZ") >= self.size_threshold)
+            )
             .then(1)
-            .when(pl.col("OBI") < -self.obi_threshold)
+            .when(
+            (pl.col("OBI") < -self.obi_threshold) & 
+            (pl.col("BIDSIZ") >= self.size_threshold) & 
+            (pl.col("ASKSIZ") >= self.size_threshold)
+            )
             .then(-1)
             .otherwise(0)
             .alias("Signal")
@@ -127,11 +140,11 @@ class OBIVWAPStrategy:
         account_balance = []
         for row in df.iter_rows(named=True):
             if row["Signal"] == 1 and self.cash >= row["ASK"] * 100 and self.position <= 1:
+                self.cash -= row["ASK"] * 100 if self.position == 0 else row["ASK"] * 200 
                 self.position = 100
-                self.cash -= row["ASK"] * 100
             elif row["Signal"] == -1 and self.position > -1:
+                self.cash += row["BID"] * 100 if self.position == 0 else row["BID"] * 200
                 self.position = -100
-                self.cash += row["BID"] * 100
             elif row["Signal"] == 0 and self.position != 0:
                 if self.position > 0:
                     self.cash += row["BID"] * self.position
