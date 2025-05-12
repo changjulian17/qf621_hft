@@ -1,7 +1,34 @@
 import polars as pl
 
 class OBIVWAPStrategy:
+    """
+    Implements the Order Book Imbalance (OBI) and Volume Weighted Average Price (VWAP) strategy.
+
+    This strategy generates trading signals based on the imbalance in the order book
+    and compares it to a VWAP threshold to decide buy/sell actions.
+
+    Attributes:
+        vwap_window (int): 
+            Rolling window size for VWAP calculation.
+        obi_threshold (float): 
+            Threshold for Order Book Imbalance (OBI) signals.
+
+    Methods:
+        calculate_vwap(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the VWAP for the given data.
+        generate_signals(data: pl.DataFrame) -> pl.DataFrame:
+            Generates buy/sell signals based on OBI and VWAP.
+        backtest(data: pl.DataFrame) -> pl.DataFrame:
+            Simulates the strategy on historical data and returns performance metrics.
+    """
     def __init__(self, vwap_window: int, obi_threshold: float, initial_cash: float = 100_000):
+        """
+        Initializes the OBIVWAPStrategy with the specified parameters.
+
+        Args:
+            vwap_window (int): Rolling window size for VWAP calculation.
+            obi_threshold (float): Threshold for Order Book Imbalance (OBI) signals.
+        """
         self.vwap_window = vwap_window
         self.obi_threshold = obi_threshold
         self.cash = initial_cash
@@ -9,6 +36,18 @@ class OBIVWAPStrategy:
         self.account_balance = []
 
     def calculate_vwap(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Calculates the VWAP for the given data.
+
+        Args:
+            data (pl.DataFrame): 
+                A Polars DataFrame containing stock market data with columns 
+                for price and volume.
+
+        Returns:
+            pl.DataFrame: 
+                A Polars DataFrame with an additional column for VWAP.
+        """
         df = df.with_columns(((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"))
         df = df.with_columns((pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume"))
         df = df.with_columns(
@@ -28,6 +67,17 @@ class OBIVWAPStrategy:
         return df
 
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Generates buy/sell signals based on OBI and VWAP.
+
+        Args:
+            data (pl.DataFrame): 
+                A Polars DataFrame containing stock market data.
+
+        Returns:
+            pl.DataFrame: 
+                A Polars DataFrame with an additional column for trading signals.
+        """
         df = self.calculate_vwap(df)
         df = self.calculate_obi(df)
         df = df.with_columns(
@@ -41,6 +91,17 @@ class OBIVWAPStrategy:
         return df
 
     def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Simulates the strategy on historical data and returns performance metrics.
+
+        Args:
+            data (pl.DataFrame): 
+                A Polars DataFrame containing stock market data.
+
+        Returns:
+            pl.DataFrame: 
+                A Polars DataFrame with columns for account balance and performance metrics.
+        """
         account_balance = []
         for row in df.iter_rows(named=True):
             if row["Signal"] == 1 and self.cash >= row["ASK"] * 100 and self.position <= 1:
