@@ -3,6 +3,18 @@ import matplotlib.dates as mdates
 import polars as pl
 
 def plot_account_balance(backtest_data: pl.DataFrame):
+    """
+    Plots the account balance over time.
+
+    Args:
+        account_balance (pl.DataFrame): 
+            A Polars DataFrame containing time-series data for account balance.
+        title (str): 
+            Title of the plot. Default is "Account Balance Over Time".
+
+    Returns:
+        None
+    """
     backtest_data = backtest_data.with_columns(
         (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("TIME_M").cast(pl.Utf8))
         .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
@@ -18,4 +30,4 @@ def plot_account_balance(backtest_data: pl.DataFrame):
         plt.title(f"Account Balance for {ticker}")
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
         plt.xticks(rotation=45)
-        # Do not call plt.show() here
+        # plt show in main
