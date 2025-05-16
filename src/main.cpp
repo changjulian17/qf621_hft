@@ -2,6 +2,7 @@
 #include "orderbook.hpp"
 #include "strategy.hpp"
 #include "portfolio.hpp"
+#include "config.hpp"
 #include <iostream>
 
 int main()
@@ -13,19 +14,29 @@ int main()
     for (const auto &q : quotes)
     {
         OrderBook ob{q.bid_price, q.bid_size, q.ask_price, q.ask_size};
-        Signal signal = strategy.generate_signal(ob);
-        strategy.update_position(signal);
+        Signal signal = strategy.generate_signal(ob, q.datetime);
+
+        // Apply transaction costs to prices
+        double effective_ask = q.ask_price * (1.0 + config::TRANSACTION_COST);
+        double effective_bid = q.bid_price * (1.0 - config::TRANSACTION_COST);
 
         if (signal == Signal::BUY)
         {
-            pf.executeBuy(q.ask_price, 1, q.datetime);
-            pf.markToMarket(q.ask_price);
+            pf.executeBuy(effective_ask, config::MIN_ORDER_SIZE, q.datetime);
+            strategy.update_position(signal);
+            strategy.update_cash(-effective_ask * config::MIN_ORDER_SIZE);
         }
         else if (signal == Signal::SELL)
         {
-            pf.executeSell(q.bid_price, 1, q.datetime);
-            pf.markToMarket(q.bid_price);
+            pf.executeSell(effective_bid, config::MIN_ORDER_SIZE, q.datetime);
+            strategy.update_position(signal);
+            strategy.update_cash(effective_bid * config::MIN_ORDER_SIZE);
         }
+
+        // Mark to market at mid price to avoid bid-ask bounce in P&L calculation
+        double mid_price = (q.ask_price + q.bid_price) / 2.0;
+        pf.markToMarket(mid_price);
+        strategy.update_position_value(mid_price);
 
         // Mark portfolio to mid-price
 
@@ -37,6 +48,7 @@ int main()
 
     std::cout << "\nFinal Portfolio Report:\n";
     pf.report();
+    std::cout << "Strategy Total Value: $" << strategy.get_total_value() << "\n";
 
     return 0;
 }
