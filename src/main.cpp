@@ -4,6 +4,7 @@
 #include "portfolio.hpp"
 #include "config.hpp"
 #include <iostream>
+#include <iomanip>
 
 int main()
 {
@@ -33,10 +34,13 @@ int main()
             strategy.update_cash(effective_bid * config::MIN_ORDER_SIZE);
         }
 
-        // Mark to market at mid price to avoid bid-ask bounce in P&L calculation
-        double mid_price = (q.ask_price + q.bid_price) / 2.0;
-        pf.markToMarket(mid_price);
-        strategy.update_position_value(mid_price);
+        // Update daily returns for Sharpe ratio calculation
+        pf.updateDailyReturns(q.datetime);
+
+        // Mark to market using bid price for long positions and ask price for short positions
+        double mark_price = (pf.getPosition() >= 0) ? ob.bid_price : ob.ask_price;
+        pf.markToMarket(mark_price);
+        strategy.update_position_value(mark_price);
 
         // Mark portfolio to mid-price
 
@@ -49,6 +53,9 @@ int main()
     std::cout << "\nFinal Portfolio Report:\n";
     pf.report();
     std::cout << "Strategy Total Value: $" << strategy.get_total_value() << "\n";
+    std::cout << "Annualized Sharpe Ratio: " << std::fixed << std::setprecision(4)
+              << pf.calculateSharpeRatio() << "\n";
+    std::cout << "Final Position: " << pf.getPosition() << " (should be 0 due to EOD flattening)\n";
 
     return 0;
 }

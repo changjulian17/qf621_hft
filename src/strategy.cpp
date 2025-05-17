@@ -115,6 +115,30 @@ void Strategy::update_cash(double amount)
     cash += amount;
 }
 
+bool Strategy::is_end_of_day(const std::string &timestamp) const
+{
+    auto [hour, minute] = parse_time(timestamp);
+    return hour == config::TRADING_END_HOUR && minute >= config::TRADING_END_MIN - 5;
+}
+
+Signal Strategy::get_eod_signal(const OrderBook &ob) const
+{
+    if (current_position > 0)
+    {
+        return Signal::SELL;
+    }
+    else if (current_position < 0)
+    {
+        return Signal::BUY;
+    }
+    return Signal::HOLD;
+}
+
+bool Strategy::should_flatten_position() const
+{
+    return current_position != 0;
+}
+
 Signal Strategy::generate_signal(const OrderBook &ob, const std::string &timestamp)
 {
     if (!is_trading_time(timestamp))
@@ -127,7 +151,14 @@ Signal Strategy::generate_signal(const OrderBook &ob, const std::string &timesta
         return Signal::HOLD;
     }
 
-    double mid_price = (ob.ask_price + ob.bid_price) / 2.0;
+    // Handle end of day flattening
+    if (is_end_of_day(timestamp) && should_flatten_position())
+    {
+        return get_eod_signal(ob);
+    }
+
+    // Use bid/ask prices instead of mid price for more accurate valuation
+    double current_price = (current_position >= 0) ? ob.bid_price : ob.ask_price;
     double current_value = get_total_value();
 
     update_daily_tracking(timestamp, current_value);
@@ -142,24 +173,28 @@ Signal Strategy::generate_signal(const OrderBook &ob, const std::string &timesta
         return Signal::HOLD;
     }
 
-    // Update position value
-    update_position_value(mid_price);
+    // Update position value using appropriate bid/ask price
+    update_position_value(current_price);
 
     // Check if we need to close position based on stop loss or take profit
-    if (should_close_position(mid_price))
+    if (should_close_position(current_price))
     {
         return (current_position > 0) ? Signal::SELL : Signal::BUY;
     }
 
     double obi = ob.compute_obi();
 
-    if (obi > config::OBI_THRESHOLD && current_position < config::MAX_POSITION)
+    // Only allow new positions if not near end of day
+    if (!is_end_of_day(timestamp))
     {
-        return Signal::BUY;
-    }
-    else if (obi < -config::OBI_THRESHOLD && current_position > -config::MAX_POSITION)
-    {
-        return Signal::SELL;
+        if (obi > config::OBI_THRESHOLD && current_position < config::MAX_POSITION)
+        {
+            return Signal::BUY;
+        }
+        else if (obi < -config::OBI_THRESHOLD && current_position > -config::MAX_POSITION)
+        {
+            return Signal::SELL;
+        }
     }
 
     return Signal::HOLD;

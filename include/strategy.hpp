@@ -36,4 +36,7 @@ private:
     void update_daily_tracking(const std::string &timestamp, double current_value);
     bool check_daily_loss_limit(double current_value) const;
     std::pair<int, int> parse_time(const std::string &timestamp) const;
+    bool is_end_of_day(const std::string &timestamp) const;
+    Signal get_eod_signal(const OrderBook &ob) const;
+    bool should_flatten_position() const;
 };
