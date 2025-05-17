@@ -6,15 +6,14 @@ import matplotlib.pyplot as plt
 import polars as pl
 
 # Configuration Parameters
-VWAP_WINDOW = 20  # Rolling window size for VWAP calculation
-OBI_THRESHOLD = 0.6  # Threshold for Order Book Imbalance (OBI) signals
-SIZE_THRESHOLD = 3  # Minimum size threshold for bid and ask sizes
+VWAP_WINDOW = 500  # Rolling window size for VWAP calculation
+OBI_THRESHOLD = 0.1  # Threshold for Order Book Imbalance (OBI) signals
+SIZE_THRESHOLD = 2  # Minimum size threshold for bid and ask sizes
 EX_FILTER = "Q"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
-START_TIME = (9, 30, 865)  # Start time for generating signals (HH, MM, MS)
-END_TIME = (16, 28, 954)  # End time for generating signals (HH, MM, MS)
-
-DATA_FILE = "./data/3_stock_trading_hrs.csv"
+START_TIME = (9, 55)  # Start time for generating signals (HH, MM, MS)
+END_TIME = (15, 36)  # End time for generating signals (HH, MM, MS)
+DATA_FILE = "./data/stock_sample2.csv"
 
 """
 Main script for running the high-frequency trading analysis.

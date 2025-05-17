@@ -4,7 +4,7 @@ QF621_hft_analysis
 
 Initial results are not good:
 
-- try geting aapl or single stock and try for a long period and find out if there is any alpha with a range of obi and VWAP
+- try geting aapl or single stock and try for a long period and find out if there is any alpha with a range of OBI and VWAP
 - try another strategy instead of relying on OBI which is very sensitive
   - use together with volume and VWAP?
 - try across a larger range of stocks including small cap names

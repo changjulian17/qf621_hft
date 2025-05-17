@@ -44,6 +44,7 @@ class OBIVWAPStrategy:
         self.vwap_window = vwap_window
         self.obi_threshold = obi_threshold
         self.size_threshold = size_threshold
+        self.vwap_threshold = 0
         self.cash = initial_cash
         self.position = 0
         self.account_balance = []
@@ -74,10 +75,17 @@ class OBIVWAPStrategy:
         return df
 
     def calculate_obi(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Calculates the rolling average Order Book Imbalance (OBI) for the given data.
+
+        Returns:
+            pl.DataFrame: 
+                A Polars DataFrame with an additional column for rolling OBI.
+        """
+        obi_raw = ((pl.col("BIDSIZ") - pl.col("ASKSIZ")) / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))).alias("OBI_raw")
+        df = df.with_columns(obi_raw)
         df = df.with_columns(
-            (
-                (pl.col("BIDSIZ") - pl.col("ASKSIZ")) / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))
-            ).alias("OBI")
+            pl.col("OBI_raw").rolling_mean(window_size=self.vwap_window).alias("OBI")
         )
         return df
 
@@ -98,14 +106,14 @@ class OBIVWAPStrategy:
         df = df.with_columns(
             pl.when(
             (pl.col("OBI") > self.obi_threshold) & 
-            (pl.col("BIDSIZ") >= self.size_threshold) & 
-            (pl.col("ASKSIZ") >= self.size_threshold)
+            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
+            (pl.col("MID_PRICE") < pl.col("VWAP") * (1 + self.vwap_threshold))
             )
             .then(1)
             .when(
             (pl.col("OBI") < -self.obi_threshold) & 
-            (pl.col("BIDSIZ") >= self.size_threshold) & 
-            (pl.col("ASKSIZ") >= self.size_threshold)
+            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
+            (pl.col("MID_PRICE") > pl.col("VWAP") * (1 - self.vwap_threshold))
             )
             .then(-1)
             .otherwise(0)
@@ -118,7 +126,7 @@ class OBIVWAPStrategy:
                 (pl.col("TIME_M") < pl.time(*self.start_time)) | 
                 (pl.col("TIME_M") > pl.time(*self.end_time))
             )
-            .then(0)
+            .then(pl.lit(0))
             .otherwise(pl.col("Signal"))
             .alias("Signal")
         )
@@ -127,30 +135,40 @@ class OBIVWAPStrategy:
 
     def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Simulates the strategy on historical data and returns performance metrics.
-
+        Backtests the strategy on historical data.
+        
         Args:
-            data (pl.DataFrame): 
-                A Polars DataFrame containing stock market data.
-
+            df (pl.DataFrame): Market data with 'Signal', 'ASK', 'BID'
+        
         Returns:
-            pl.DataFrame: 
-                A Polars DataFrame with columns for account balance and performance metrics.
+            pl.DataFrame: Data with account balance over time
         """
         account_balance = []
+
         for row in df.iter_rows(named=True):
-            if row["Signal"] == 1 and self.cash >= row["ASK"] * 100 and self.position <= 1:
-                self.cash -= row["ASK"] * 100 if self.position == 0 else row["ASK"] * 200 
+            signal = row["Signal"]
+
+            # Buy signal
+            if signal == 1 and self.position == 0 and self.cash >= row["ASK"] * 100:
+                self.cash -= row["ASK"] * 100
                 self.position = 100
-            elif row["Signal"] == -1 and self.position > -1:
-                self.cash += row["BID"] * 100 if self.position == 0 else row["BID"] * 200
+
+            # Sell signal
+            elif signal == -1 and self.position == 0:
+                self.cash += row["BID"] * 100
                 self.position = -100
-            elif row["Signal"] == 0 and self.position != 0:
+
+            # Close position
+            elif signal == 0 and self.position != 0:
                 if self.position > 0:
                     self.cash += row["BID"] * self.position
                 else:
                     self.cash -= row["ASK"] * abs(self.position)
                 self.position = 0
-            account_balance.append(self.cash + self.position * (row["ASK"] if self.position > 0 else row["BID"]))
-        df = df.with_columns(pl.Series("Account_Balance", account_balance))
-        return df
+
+            # Mark-to-market balance
+            market_price = row["ASK"] if self.position > 0 else row["BID"] if self.position < 0 else 0
+            account_balance.append(self.cash + self.position * market_price)
+
+        return df.with_columns(pl.Series("Account_Balance", account_balance, dtype=pl.Float64))
+
