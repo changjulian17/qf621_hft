@@ -4,6 +4,7 @@ from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
 import matplotlib.pyplot as plt
 import polars as pl
+import itertools
 
 # Configuration Parameters
 VWAP_WINDOW = 500  # Rolling window size for VWAP calculation
@@ -15,7 +16,7 @@ EX_FILTER = "Q"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
 START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
 END_TIME = (15, 36)  # End time for generating signals (HH, MM)
-DATA_FILE = "./data/stock_sample1.csv"
+DATA_FILE = "./data/stock_sample6.csv"
 
 """
 Main script for running the high-frequency trading analysis.
@@ -73,10 +74,10 @@ if __name__ == "__main__":
 
     # Parameter optimization
     # Define parameter grids
-    VWAP_WINDOWS = [200]
-    OBI_THRESHOLDS = [ .25]
-    SIZE_THRESHOLDS = [1]
-    VWAP_THRESHOLDS = [0.015]  # Add your desired search values here
+    VWAP_WINDOWS = [500]
+    OBI_THRESHOLDS = [0]
+    SIZE_THRESHOLDS = [0]
+    VWAP_THRESHOLDS = [0]  # Add your desired search values here
 
     best_result = None
     best_params = None
@@ -106,8 +107,7 @@ if __name__ == "__main__":
             best_result = avg_metric
             best_params = (vwap_window, obi_threshold, size_threshold, vwap_threshold)
 
-        # Evaluate strategy performance
-        performance_metrics = evaluate_strategy_performance(backtest_data)
+    print(f"Best params: VWAP_WINDOW={best_params[0]}, OBI_THRESHOLD={best_params[1]}, SIZE_THRESHOLD={best_params[2]}, VWAP_THRESHOLD={best_params[3]} with avg return {best_result:.2f}%")
 
     # Show all plots at the end
     plt.show()

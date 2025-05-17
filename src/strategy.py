@@ -28,6 +28,7 @@ class OBIVWAPStrategy:
             Simulates the strategy on historical data and returns performance metrics.
     """
     def __init__(self, vwap_window: int, obi_threshold: float, size_threshold: int = 3, 
+                 vwap_threshold: float = 0.1,
                  initial_cash: float = 100_000, start_time: tuple = (9, 30, 865), 
                  end_time: tuple = (16, 28, 954)):
         """
@@ -37,6 +38,7 @@ class OBIVWAPStrategy:
             vwap_window (int): Rolling window size for VWAP calculation.
             obi_threshold (float): Threshold for Order Book Imbalance (OBI) signals.
             size_threshold (int): Minimum size threshold for bid and ask sizes. Default is 3.
+            vwap_threshold (float): VWAP threshold for signal generation. Default is 0.1.
             initial_cash (float): Initial cash balance for the strategy. Default is 100,000.
             start_time (tuple): The earliest time (HH, MM, MS) for generating signals.
             end_time (tuple): The latest time (HH, MM, MS) for generating signals.
@@ -44,7 +46,7 @@ class OBIVWAPStrategy:
         self.vwap_window = vwap_window
         self.obi_threshold = obi_threshold
         self.size_threshold = size_threshold
-        self.vwap_threshold = 0
+        self.vwap_threshold = vwap_threshold
         self.cash = initial_cash
         self.position = 0
         self.account_balance = []
