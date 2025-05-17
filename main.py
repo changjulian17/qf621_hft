@@ -4,17 +4,19 @@ from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
 import matplotlib.pyplot as plt
 import polars as pl
+import itertools
 
 # Configuration Parameters
-VWAP_WINDOW = 20  # Rolling window size for VWAP calculation
-OBI_THRESHOLD = 0.6  # Threshold for Order Book Imbalance (OBI) signals
-SIZE_THRESHOLD = 3  # Minimum size threshold for bid and ask sizes
+VWAP_WINDOW = 500  # Rolling window size for VWAP calculation
+OBI_THRESHOLD = 0.1  # Threshold for Order Book Imbalance (OBI) signals
+SIZE_THRESHOLD = 2  # Minimum size threshold for bid and ask sizes
+VWAP_THRESHOLD = 0.1  # VWAP threshold for signal generation
+
 EX_FILTER = "Q"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
-START_TIME = (9, 30, 865)  # Start time for generating signals (HH, MM, MS)
-END_TIME = (16, 28, 954)  # End time for generating signals (HH, MM, MS)
-
-DATA_FILE = "./data/3_stock_trading_hrs.csv"
+START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
+END_TIME = (15, 36)  # End time for generating signals (HH, MM)
+DATA_FILE = "./data/stock_sample6.csv"
 
 """
 Main script for running the high-frequency trading analysis.
@@ -57,17 +59,55 @@ if __name__ == "__main__":
             vwap_window=VWAP_WINDOW, 
             obi_threshold=OBI_THRESHOLD, 
             size_threshold=SIZE_THRESHOLD,
+            vwap_threshold=VWAP_THRESHOLD,
             start_time=START_TIME, 
             end_time=END_TIME
         )
-        ticker_data = strategy.generate_signals(ticker_data)
-        backtest_data = strategy.backtest(ticker_data)
+        # ticker_data = strategy.generate_signals(ticker_data)
+        # backtest_data = strategy.backtest(ticker_data)
 
         # Plot account balance
-        plot_account_balance(backtest_data)
+        # plot_account_balance(backtest_data)
 
         # Evaluate strategy performance
-        performance_metrics = evaluate_strategy_performance(backtest_data)
+        # performance_metrics = evaluate_strategy_performance(backtest_data)
+
+    # Parameter optimization
+    # Define parameter grids
+    VWAP_WINDOWS = [500]
+    OBI_THRESHOLDS = [0]
+    SIZE_THRESHOLDS = [0]
+    VWAP_THRESHOLDS = [0]  # Add your desired search values here
+
+    best_result = None
+    best_params = None
+
+    for vwap_window, obi_threshold, size_threshold, vwap_threshold in itertools.product(
+        VWAP_WINDOWS, OBI_THRESHOLDS, SIZE_THRESHOLDS, VWAP_THRESHOLDS
+    ):
+        print(f"Testing VWAP_WINDOW={vwap_window}, OBI_THRESHOLD={obi_threshold}, SIZE_THRESHOLD={size_threshold}, VWAP_THRESHOLD={vwap_threshold}")
+        all_metrics = []
+        for ticker in stock_tickers:
+            ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
+            strategy = OBIVWAPStrategy(
+                vwap_window=vwap_window, 
+                obi_threshold=obi_threshold, 
+                size_threshold=size_threshold,
+                vwap_threshold=vwap_threshold,
+                start_time=START_TIME, 
+                end_time=END_TIME
+            )
+            ticker_data = strategy.generate_signals(ticker_data)
+            backtest_data = strategy.backtest(ticker_data)
+            metrics = evaluate_strategy_performance(backtest_data)
+            all_metrics.append(metrics["Total_Returns"])  # or use another metric
+
+        avg_metric = sum(all_metrics) / len(all_metrics)
+        if (best_result is None) or (avg_metric > best_result):
+            best_result = avg_metric
+            best_params = (vwap_window, obi_threshold, size_threshold, vwap_threshold)
+
+    print(f"Best params: VWAP_WINDOW={best_params[0]}, OBI_THRESHOLD={best_params[1]}, SIZE_THRESHOLD={best_params[2]}, VWAP_THRESHOLD={best_params[3]} with avg return {best_result:.2f}%")
 
     # Show all plots at the end
     plt.show()

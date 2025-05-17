@@ -71,4 +71,11 @@ def load_and_filter_data(
     if sym_root:
         df = df.filter(pl.col("SYM_ROOT") == sym_root)
 
+    # Combine DATE and TIME_M into a single datetime column and sort by it
+    df = df.with_columns(
+        (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("TIME_M").cast(pl.Utf8))
+        .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
+        .alias("Timestamp")
+    ).sort("Timestamp")
+
     return df

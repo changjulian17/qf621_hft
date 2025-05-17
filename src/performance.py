@@ -26,12 +26,8 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     drawdown = account_balance / np.maximum.accumulate(account_balance) - 1
     max_drawdown = np.min(drawdown) * 100
 
-    # Combine DATE and TIME_M into a single datetime column
-    df = backtest_data.with_columns(
-        (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("TIME_M").cast(pl.Utf8))
-        .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
-        .alias("Timestamp")
-    )
+    # Use the existing Timestamp column and ensure it's sorted
+    df = backtest_data.sort("Timestamp")
 
     # Resample to 1-minute intervals and forward-fill missing values
     df = df.group_by_dynamic("Timestamp", every="1m", closed="right").agg(
