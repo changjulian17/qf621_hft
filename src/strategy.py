@@ -1,4 +1,7 @@
 import polars as pl
+import numpy as np
+from datetime import datetime, time
+from typing import Tuple, List
 
 class OBIVWAPStrategy:
     """
@@ -10,10 +13,34 @@ class OBIVWAPStrategy:
     Attributes:
         vwap_window (int): 
             Rolling window size for VWAP calculation.
+        obi_window (int): 
+            Rolling window size for OBI calculation.
+        price_impact_window (int): 
+            Rolling window size for price impact calculation.
+        momentum_window (int): 
+            Rolling window size for momentum calculation.
         obi_threshold (float): 
             Threshold for Order Book Imbalance (OBI) signals.
         size_threshold (int): 
             Minimum size threshold for bid and ask sizes.
+        vwap_threshold (float): 
+            VWAP threshold for signal generation.
+        volatility_window (int): 
+            Window size for volatility calculation.
+        trend_window (int): 
+            Window size for trend detection.
+        max_position (int): 
+            Maximum position size.
+        stop_loss_pct (float): 
+            Stop loss percentage.
+        profit_target_pct (float): 
+            Profit target percentage.
+        initial_cash (float): 
+            Initial cash balance for the strategy.
+        risk_per_trade (float): 
+            Percentage of portfolio to risk per trade.
+        min_profit_threshold (float): 
+            Minimum expected profit.
         start_time (tuple): 
             The earliest time (HH, MM, MS) for generating signals.
         end_time (tuple): 
@@ -22,107 +49,273 @@ class OBIVWAPStrategy:
     Methods:
         calculate_vwap(data: pl.DataFrame) -> pl.DataFrame:
             Calculates the VWAP for the given data.
+        calculate_price_impact(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the price impact for the given data.
+        calculate_momentum_indicators(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the momentum indicators for the given data.
+        calculate_volatility(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the volatility for the given data.
+        calculate_market_regime(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the market regime for the given data.
+        calculate_signal_quality(data: pl.DataFrame) -> pl.DataFrame:
+            Calculates the signal quality for the given data.
         generate_signals(data: pl.DataFrame) -> pl.DataFrame:
-            Generates buy/sell signals based on OBI and VWAP.
+            Generates buy/sell signals based on OBI, VWAP, and volatility.
+        calculate_position_size(price: float, volatility: float, portfolio_value: float,
+                              signal_quality: float) -> int:
+            Calculates the optimal position size based on risk and volatility.
         backtest(data: pl.DataFrame) -> pl.DataFrame:
             Simulates the strategy on historical data and returns performance metrics.
     """
-    def __init__(self, vwap_window: int, obi_threshold: float, size_threshold: int = 3, 
-                 vwap_threshold: float = 0.1,
-                 initial_cash: float = 100_000, start_time: tuple = (9, 30, 865), 
+    def __init__(self, vwap_window: int = 500, obi_window: int = 20,
+                 price_impact_window: int = 50, momentum_window: int = 100,
+                 obi_threshold: float = 0.1, size_threshold: int = 3,
+                 vwap_threshold: float = 0.1, volatility_window: int = 50,
+                 trend_window: int = 20, max_position: int = 100,
+                 stop_loss_pct: float = 0.5, profit_target_pct: float = 1.0,
+                 initial_cash: float = 100_000, risk_per_trade: float = 0.02,
+                 min_profit_threshold: float = 0.001,
+                 start_time: tuple = (9, 30, 865),
                  end_time: tuple = (16, 28, 954)):
-        """
-        Initializes the OBIVWAPStrategy with the specified parameters.
-
-        Args:
-            vwap_window (int): Rolling window size for VWAP calculation.
-            obi_threshold (float): Threshold for Order Book Imbalance (OBI) signals.
-            size_threshold (int): Minimum size threshold for bid and ask sizes. Default is 3.
-            vwap_threshold (float): VWAP threshold for signal generation. Default is 0.1.
-            initial_cash (float): Initial cash balance for the strategy. Default is 100,000.
-            start_time (tuple): The earliest time (HH, MM, MS) for generating signals.
-            end_time (tuple): The latest time (HH, MM, MS) for generating signals.
-        """
+        """Enhanced initialization with microstructure indicators."""
         self.vwap_window = vwap_window
+        self.obi_window = obi_window
+        self.price_impact_window = price_impact_window
+        self.momentum_window = momentum_window
         self.obi_threshold = obi_threshold
         self.size_threshold = size_threshold
         self.vwap_threshold = vwap_threshold
+        self.volatility_window = volatility_window
+        self.trend_window = trend_window
+        self.max_position = max_position
+        self.stop_loss_pct = stop_loss_pct
+        self.profit_target_pct = profit_target_pct
+        self.risk_per_trade = risk_per_trade
+        self.min_profit_threshold = min_profit_threshold
         self.cash = initial_cash
         self.position = 0
-        self.account_balance = []
+        self.entry_price = 0
+        self.trades = []
         self.start_time = start_time
         self.end_time = end_time
 
     def calculate_vwap(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Calculates the VWAP for the given data.
-
-        Args:
-            data (pl.DataFrame): 
-                A Polars DataFrame containing stock market data with columns 
-                for price and volume.
-
-        Returns:
-            pl.DataFrame: 
-                A Polars DataFrame with an additional column for VWAP.
-        """
-        df = df.with_columns(((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"))
-        df = df.with_columns((pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume"))
+        """Calculate VWAP with adaptive bands based on volume profile."""
+        df = df.with_columns(
+            ((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"),
+            (pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume")
+        )
+        
+        # Calculate VWAP
         df = df.with_columns(
             (
                 (pl.col("MID_PRICE") * pl.col("Volume")).rolling_sum(window_size=self.vwap_window)
                 / pl.col("Volume").rolling_sum(window_size=self.vwap_window)
             ).alias("VWAP")
         )
+        
+        # Calculate volume-weighted price variance
+        df = df.with_columns(
+            (
+                ((pl.col("MID_PRICE") - pl.col("VWAP")) ** 2 * pl.col("Volume"))
+                .rolling_sum(window_size=self.vwap_window)
+                / pl.col("Volume").rolling_sum(window_size=self.vwap_window)
+            ).sqrt().alias("VWAP_STD")
+        )
+        
+        # Adaptive VWAP bands based on volume profile
+        df = df.with_columns(
+            (pl.col("VWAP") + pl.col("VWAP_STD") * 
+             (1 + pl.col("Volume") / pl.col("Volume").rolling_mean(window_size=self.vwap_window))
+            ).alias("VWAP_Upper"),
+            
+            (pl.col("VWAP") - pl.col("VWAP_STD") * 
+             (1 + pl.col("Volume") / pl.col("Volume").rolling_mean(window_size=self.vwap_window))
+            ).alias("VWAP_Lower")
+        )
+        
         return df
 
-    def calculate_obi(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Calculates the rolling average Order Book Imbalance (OBI) for the given data.
-
-        Returns:
-            pl.DataFrame: 
-                A Polars DataFrame with an additional column for rolling OBI.
-        """
-        obi_raw = ((pl.col("BIDSIZ") - pl.col("ASKSIZ")) / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))).alias("OBI_raw")
-        df = df.with_columns(obi_raw)
+    def calculate_price_impact(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate price impact and market depth indicators."""
+        # Calculate bid-ask spread
         df = df.with_columns(
-            pl.col("OBI_raw").rolling_mean(window_size=self.vwap_window).alias("OBI")
+            (pl.col("ASK") - pl.col("BID")).alias("Spread"),
+            ((pl.col("ASK") - pl.col("BID")) / pl.col("MID_PRICE")).alias("Relative_Spread")
         )
+        
+        # Calculate order book pressure
+        df = df.with_columns(
+            (pl.col("BIDSIZ") / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))).alias("Bid_Pressure"),
+            (pl.col("Spread") * pl.col("Volume")).alias("Dollar_Volume")
+        )
+        
+        # Calculate market depth ratios
+        df = df.with_columns(
+            (pl.col("BIDSIZ") / pl.col("BIDSIZ").rolling_mean(window_size=100)).alias("Bid_Depth_Ratio"),
+            (pl.col("ASKSIZ") / pl.col("ASKSIZ").rolling_mean(window_size=100)).alias("Ask_Depth_Ratio")
+        )
+        
+        # Calculate price impact score
+        df = df.with_columns(
+            (
+                pl.col("Dollar_Volume").rolling_sum(window_size=self.price_impact_window) /
+                pl.col("Volume").rolling_sum(window_size=self.price_impact_window)
+            ).alias("Price_Impact")
+        )
+        
+        return df
+
+    def calculate_momentum_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate various momentum and mean reversion indicators."""
+        # Price momentum
+        df = df.with_columns(
+            pl.col("MID_PRICE").pct_change().rolling_mean(window_size=self.momentum_window).alias("Price_Momentum"),
+            pl.col("Volume").pct_change().rolling_mean(window_size=self.momentum_window).alias("Volume_Momentum")
+        )
+        
+        # Mean reversion score
+        df = df.with_columns(
+            ((pl.col("MID_PRICE") - pl.col("VWAP")) / pl.col("VWAP_STD")).alias("Mean_Reversion_Score")
+        )
+        
+        # RSI-like indicator for order book pressure
+        df = df.with_columns(
+            pl.col("Bid_Pressure").rolling_mean(window_size=self.momentum_window).alias("OB_RSI")
+        )
+        
+        return df
+
+    def calculate_volatility(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Enhanced volatility calculation with multiple estimators."""
+        # Close-to-close volatility
+        df = df.with_columns(
+            pl.col("MID_PRICE").pct_change()
+            .abs()
+            .rolling_mean(window_size=self.volatility_window)
+            .alias("Volatility")
+        )
+        
+        # Parkinson volatility estimator
+        df = df.with_columns(
+            (
+                (pl.col("ASK").rolling_max(window_size=self.volatility_window) -
+                 pl.col("BID").rolling_min(window_size=self.volatility_window)) /
+                np.sqrt(4 * np.log(2))
+            ).alias("Parkinson_Vol")
+        )
+        
+        # Volume-weighted volatility
+        df = df.with_columns(
+            (
+                pl.col("Volatility") * 
+                (pl.col("Volume") / pl.col("Volume").rolling_mean(window_size=self.volatility_window))
+            ).alias("Vol_Adjusted_Vol")
+        )
+        
+        return df
+
+    def calculate_market_regime(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Identify market regime using multiple indicators."""
+        # Trend strength
+        df = df.with_columns(
+            pl.col("VWAP").diff().rolling_mean(window_size=self.trend_window).alias("Short_Trend"),
+            pl.col("VWAP").diff().rolling_mean(window_size=self.trend_window * 2).alias("Medium_Trend"),
+            pl.col("VWAP").diff().rolling_mean(window_size=self.trend_window * 4).alias("Long_Trend")
+        )
+        
+        # Trend alignment
+        df = df.with_columns(
+            (
+                (pl.col("Short_Trend") > 0) &
+                (pl.col("Medium_Trend") > 0) &
+                (pl.col("Long_Trend") > 0)
+            ).cast(pl.Int8).alias("Uptrend"),
+            
+            (
+                (pl.col("Short_Trend") < 0) &
+                (pl.col("Medium_Trend") < 0) &
+                (pl.col("Long_Trend") < 0)
+            ).cast(pl.Int8).alias("Downtrend")
+        )
+        
+        # Volatility regime
+        df = df.with_columns(
+            (pl.col("Vol_Adjusted_Vol") > pl.col("Vol_Adjusted_Vol").rolling_mean(window_size=100))
+            .cast(pl.Int8).alias("High_Vol_Regime")
+        )
+        
+        return df
+
+    def calculate_signal_quality(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate signal quality score based on multiple factors."""
+        df = df.with_columns(
+            # Trend quality
+            (
+                (pl.col("Uptrend") * pl.col("OB_RSI") > 0.7) |
+                (pl.col("Downtrend") * (1 - pl.col("OB_RSI")) > 0.7)
+            ).cast(pl.Int8).alias("Trend_Quality"),
+            
+            # Volatility quality
+            (pl.col("Vol_Adjusted_Vol") < pl.col("Vol_Adjusted_Vol").rolling_mean(window_size=100))
+            .cast(pl.Int8).alias("Vol_Quality"),
+            
+            # Spread quality
+            (pl.col("Relative_Spread") < pl.col("Relative_Spread").rolling_mean(window_size=100))
+            .cast(pl.Int8).alias("Spread_Quality")
+        )
+        
+        # Combined signal quality score
+        df = df.with_columns(
+            (
+                pl.col("Trend_Quality") +
+                pl.col("Vol_Quality") +
+                pl.col("Spread_Quality")
+            ).alias("Signal_Quality")
+        )
+        
         return df
 
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Generates buy/sell signals based on OBI and VWAP.
-
-        Args:
-            df (pl.DataFrame): 
-                A Polars DataFrame containing stock market data.
-
-        Returns:
-            pl.DataFrame: 
-                A Polars DataFrame with an additional column for trading signals.
-        """
+        """Generate trading signals with enhanced filtering and quality scores."""
         df = self.calculate_vwap(df)
-        df = self.calculate_obi(df)
+        df = self.calculate_price_impact(df)
+        df = self.calculate_momentum_indicators(df)
+        df = self.calculate_volatility(df)
+        df = self.calculate_market_regime(df)
+        df = self.calculate_signal_quality(df)
+        
+        # Generate signals with multiple confirmations
         df = df.with_columns(
             pl.when(
-            (pl.col("OBI") > self.obi_threshold) & 
-            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
-            (pl.col("MID_PRICE") < pl.col("VWAP") * (1 + self.vwap_threshold))
+                # Long signal conditions
+                (pl.col("Bid_Pressure") > 0.5 + self.obi_threshold) &  # Strong buying pressure
+                (pl.col("Price_Momentum") > 0) &  # Positive momentum
+                (pl.col("MID_PRICE") < pl.col("VWAP_Lower")) &  # Price below VWAP support
+                (pl.col("Signal_Quality") >= 2) &  # Good signal quality
+                (pl.col("Vol_Quality") == 1) &  # Good volatility conditions
+                (pl.col("Spread_Quality") == 1) &  # Tight spreads
+                (pl.col("Mean_Reversion_Score") < -1.5) &  # Oversold condition
+                (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold)  # Sufficient liquidity
             )
             .then(1)
             .when(
-            (pl.col("OBI") < -self.obi_threshold) & 
-            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
-            (pl.col("MID_PRICE") > pl.col("VWAP") * (1 - self.vwap_threshold))
+                # Short signal conditions
+                (pl.col("Bid_Pressure") < 0.5 - self.obi_threshold) &  # Strong selling pressure
+                (pl.col("Price_Momentum") < 0) &  # Negative momentum
+                (pl.col("MID_PRICE") > pl.col("VWAP_Upper")) &  # Price above VWAP resistance
+                (pl.col("Signal_Quality") >= 2) &  # Good signal quality
+                (pl.col("Vol_Quality") == 1) &  # Good volatility conditions
+                (pl.col("Spread_Quality") == 1) &  # Tight spreads
+                (pl.col("Mean_Reversion_Score") > 1.5) &  # Overbought condition
+                (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold)  # Sufficient liquidity
             )
             .then(-1)
             .otherwise(0)
             .alias("Signal")
         )
 
-        # Ensure Signal is 0 when TIME_M is outside the allowed range
+        # Filter signals by trading hours
         df = df.with_columns(
             pl.when(
                 (pl.col("TIME_M") < pl.time(*self.start_time)) | 
@@ -135,42 +328,189 @@ class OBIVWAPStrategy:
 
         return df
 
+    def calculate_position_size(self, price: float, volatility: float, portfolio_value: float,
+                              signal_quality: float) -> int:
+        """Calculate optimal position size based on risk, volatility, and signal quality."""
+        if volatility == 0:
+            return 0
+            
+        # Kelly Criterion with signal quality adjustment
+        win_rate = 0.55 + (signal_quality / 10)  # Adjust win rate based on signal quality
+        risk_reward = self.profit_target_pct / self.stop_loss_pct
+        kelly_fraction = (win_rate * risk_reward - (1 - win_rate)) / risk_reward
+        
+        # Apply a conservative fraction of Kelly
+        conservative_kelly = kelly_fraction * 0.3
+        
+        # Adjust position size based on market conditions
+        risk_amount = portfolio_value * self.risk_per_trade * conservative_kelly
+        risk_per_share = price * volatility * 2
+        
+        if risk_per_share == 0:
+            return 0
+            
+        position_size = int(risk_amount / risk_per_share)
+        return min(position_size, self.max_position)
+
     def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Backtests the strategy on historical data.
-        
-        Args:
-            df (pl.DataFrame): Market data with 'Signal', 'ASK', 'BID'
-        
-        Returns:
-            pl.DataFrame: Data with account balance over time
-        """
+        """Enhanced backtesting with detailed performance tracking and risk management."""
         account_balance = []
-
-        for row in df.iter_rows(named=True):
+        positions = []
+        trades = []
+        last_signal = 0
+        daily_returns = []
+        current_day = None
+        
+        for i, row in enumerate(df.iter_rows(named=True)):
             signal = row["Signal"]
+            mid_price = row["MID_PRICE"]
+            current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
+            
+            # Track daily returns
+            trade_date = row["Timestamp"].date()
+            if trade_date != current_day:
+                if current_day is not None:
+                    daily_return = (current_portfolio / account_balance[0] - 1) if account_balance else 0
+                    daily_returns.append((current_day, daily_return))
+                current_day = trade_date
+            
+            # Calculate optimal position size with signal quality
+            volatility = row.get("Vol_Adjusted_Vol", row.get("Volatility", 0.01))
+            signal_quality = row.get("Signal_Quality", 1)
+            
+            # Dynamic risk management
+            if self.position != 0:
+                unrealized_pnl = (mid_price - self.entry_price) * self.position
+                unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
+                
+                # Dynamic stop loss based on volatility
+                vol_adjusted_stop = self.stop_loss_pct * (1 + row.get("High_Vol_Regime", 0) * 0.5)
+                
+                # Dynamic profit target based on trend strength
+                trend_strength = abs(row.get("Short_Trend", 0))
+                profit_target = self.profit_target_pct * (1 + trend_strength)
+                
+                if (self.position > 0 and unrealized_pnl_pct <= -vol_adjusted_stop/100) or \
+                   (self.position < 0 and unrealized_pnl_pct >= vol_adjusted_stop/100):
+                    # Stop loss hit
+                    self.cash += mid_price * self.position
+                    trades.append(("Stop Loss", self.position, self.entry_price, mid_price))
+                    self.position = 0
+                    self.entry_price = 0
+                
+                elif (self.position > 0 and unrealized_pnl_pct >= profit_target/100) or \
+                     (self.position < 0 and unrealized_pnl_pct <= -profit_target/100):
+                    # Take profit hit
+                    self.cash += mid_price * self.position
+                    trades.append(("Take Profit", self.position, self.entry_price, mid_price))
+                    self.position = 0
+                    self.entry_price = 0
+            
+            # Process new signals with quality check
+            if signal != 0 and signal != last_signal:
+                position_size = self.calculate_position_size(
+                    mid_price, volatility, current_portfolio, signal_quality
+                )
+                
+                # Expected profit calculation with spread impact
+                spread = row["ASK"] - row["BID"]
+                expected_profit = (self.profit_target_pct/100 * mid_price - spread) * position_size
+                transaction_cost = spread * position_size
+                
+                # Additional quality checks
+                signal_strength = abs(row.get("Mean_Reversion_Score", 0))
+                min_profit_threshold = self.min_profit_threshold * (1 + signal_strength)
+                
+                if expected_profit > transaction_cost + (min_profit_threshold * current_portfolio):
+                    if signal == 1 and self.position <= 0:
+                        # Close any existing short position
+                        if self.position < 0:
+                            self.cash -= row["ASK"] * abs(self.position)
+                            trades.append(("Close Short", self.position, self.entry_price, row["ASK"]))
+                            self.position = 0
+                        
+                        # Open long position
+                        if position_size > 0 and self.cash >= row["ASK"] * position_size:
+                            self.cash -= row["ASK"] * position_size
+                            self.position = position_size
+                            self.entry_price = row["ASK"]
+                            trades.append(("Buy", position_size, row["ASK"], None))
+                    
+                    elif signal == -1 and self.position >= 0:
+                        # Close any existing long position
+                        if self.position > 0:
+                            self.cash += row["BID"] * self.position
+                            trades.append(("Close Long", self.position, self.entry_price, row["BID"]))
+                            self.position = 0
+                        
+                        # Open short position
+                        if position_size > 0:
+                            self.cash += row["BID"] * position_size
+                            self.position = -position_size
+                            self.entry_price = row["BID"]
+                            trades.append(("Sell", -position_size, row["BID"], None))
+            
+            # Update tracking variables
+            current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
+            account_balance.append(current_balance)
+            positions.append(self.position)
+            last_signal = signal
 
-            # Buy signal
-            if signal == 1 and self.position == 0 and self.cash >= row["ASK"] * 100:
-                self.cash -= row["ASK"] * 100
-                self.position = 100
-
-            # Sell signal
-            elif signal == -1 and self.position == 0:
-                self.cash += row["BID"] * 100
-                self.position = -100
-
-            # Close position
-            elif signal == 0 and self.position != 0:
-                if self.position > 0:
-                    self.cash += row["BID"] * self.position
-                else:
-                    self.cash -= row["ASK"] * abs(self.position)
-                self.position = 0
-
-            # Mark-to-market balance
-            market_price = row["ASK"] if self.position > 0 else row["BID"] if self.position < 0 else 0
-            account_balance.append(self.cash + self.position * market_price)
-
-        return df.with_columns(pl.Series("Account_Balance", account_balance, dtype=pl.Float64))
+        # Calculate performance metrics
+        df = df.with_columns(
+            pl.Series("Account_Balance", account_balance, dtype=pl.Float64),
+            pl.Series("Position", positions, dtype=pl.Int64)
+        )
+        
+        # Calculate returns and metrics
+        df = df.with_columns(
+            pl.col("Account_Balance").pct_change().alias("Returns")
+        )
+        
+        # Calculate rolling maximum for drawdown
+        df = df.with_columns(
+            pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value")
+        )
+        
+        df = df.with_columns(
+            ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
+        )
+        
+        # Calculate performance metrics
+        avg_daily_return = df.select(pl.col("Returns").mean()).item()
+        std_daily_return = df.select(pl.col("Returns").std()).item()
+        risk_free_rate = 0.01 / 252  # Assuming 1% annual risk-free rate
+        
+        sharpe_ratio = ((avg_daily_return - risk_free_rate) / std_daily_return) * np.sqrt(252) if std_daily_return > 0 else 0
+        
+        # Calculate Sortino Ratio
+        downside_returns = df.filter(pl.col("Returns") < 0).select("Returns")
+        downside_deviation = downside_returns.select(pl.col("Returns").std()).item() if len(downside_returns) > 0 else 0
+        sortino_ratio = ((avg_daily_return - risk_free_rate) / downside_deviation) * np.sqrt(252) if downside_deviation > 0 else 0
+        
+        # Maximum drawdown
+        max_drawdown = df.select(pl.col("Drawdown").max()).item()
+        
+        # Print performance metrics
+        print(f"\nStrategy Performance Metrics:")
+        print(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+        print(f"Sortino Ratio: {sortino_ratio:.4f}")
+        print(f"Maximum Drawdown: {max_drawdown:.4%}")
+        print(f"Total Return: {(account_balance[-1] / account_balance[0] - 1):.4%}")
+        print(f"Number of Trades: {len(trades)}")
+        
+        # Calculate win rate and profit metrics
+        profitable_trades = sum(1 for t in trades if 
+                              (t[0] in ["Take Profit", "Close Long", "Close Short"]) and
+                              ((t[1] > 0 and t[3] > t[2]) or (t[1] < 0 and t[3] < t[2])))
+        win_rate = profitable_trades / len(trades) if trades else 0
+        print(f"Win Rate: {win_rate:.2%}")
+        
+        # Calculate average profit per trade
+        if trades:
+            profits = [(t[3] - t[2]) * t[1] for t in trades if t[3] is not None]
+            avg_profit = sum(profits) / len(profits) if profits else 0
+            print(f"Average Profit per Trade: ${avg_profit:.2f}")
+        
+        return df
 
