@@ -49,7 +49,8 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     )
 
     # Print performance metrics
-    print("\nPERFORMANCE STATISTICS:")
+    ticker = backtest_data["SYM_ROOT"].unique()[0]
+    print(f"\nPERFORMANCE {ticker} STATISTICS:")
     print(f"Total returns: {total_returns:.2f}%")
     print(f"Max drawdown: {max_drawdown:.2f}%")
 

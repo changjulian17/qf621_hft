@@ -47,7 +47,13 @@ def load_and_filter_data(
         >>> print(df)
     """
     # Read the CSV file into a Polars DataFrame
-    df = pl.read_csv(path)
+    df = pl.read_csv(path,
+                    schema_overrides={"NATBBO_IND": pl.Utf8}
+            )
+    
+    # Extract unique stock tickers from the SYM_ROOT column
+    stock_tickers = df["SYM_ROOT"].unique().to_list()
+    print(f"Found stock tickers: {stock_tickers}")
 
     # Convert the "TIME_M" column to time format and alias it
     df = df.with_columns(

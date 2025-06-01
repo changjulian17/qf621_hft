@@ -12,11 +12,11 @@ OBI_THRESHOLD = 0.1  # Threshold for Order Book Imbalance (OBI) signals
 SIZE_THRESHOLD = 2  # Minimum size threshold for bid and ask sizes
 VWAP_THRESHOLD = 0.1  # VWAP threshold for signal generation
 
-EX_FILTER = "Q"  # Exchange filter
+EX_FILTER = "N"  # Exchange filter
 QU_COND_FILTER = "R"  # Quote condition filter
 START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
 END_TIME = (15, 36)  # End time for generating signals (HH, MM)
-DATA_FILE = "./data/stock_sample6.csv"
+DATA_FILE = "./data/stock_sample12.csv"
 
 """
 Main script for running the high-frequency trading analysis.
@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
     # Extract unique stock tickers from the SYM_ROOT column
     stock_tickers = df["SYM_ROOT"].unique().to_list()
-    print(f"Found stock tickers: {stock_tickers}")
+    print(f"Found stock tickers: {stock_tickers} in {EX_FILTER} exchange with {QU_COND_FILTER} quote condition")
 
     for ticker in stock_tickers:
         print(f"Processing {ticker}...")
