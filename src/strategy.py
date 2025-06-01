@@ -66,8 +66,8 @@ class OBIVWAPStrategy:
             pl.DataFrame: 
                 A Polars DataFrame with an additional column for VWAP.
         """
-        df = df.with_columns(((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"))
-        df = df.with_columns((pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume"))
+        df = df.with_columns(((pl.col("bid") + pl.col("ask")) / 2).alias("MID_PRICE"))
+        df = df.with_columns((pl.col("bidsiz") + pl.col("asksiz")).alias("Volume"))
         df = df.with_columns(
             (
                 (pl.col("MID_PRICE") * pl.col("Volume")).rolling_sum(window_size=self.vwap_window)
@@ -84,7 +84,7 @@ class OBIVWAPStrategy:
             pl.DataFrame: 
                 A Polars DataFrame with an additional column for rolling OBI.
         """
-        obi_raw = ((pl.col("BIDSIZ") - pl.col("ASKSIZ")) / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))).alias("OBI_raw")
+        obi_raw = ((pl.col("bidsiz") - pl.col("asksiz")) / (pl.col("bidsiz") + pl.col("asksiz"))).alias("OBI_raw")
         df = df.with_columns(obi_raw)
         df = df.with_columns(
             pl.col("OBI_raw").rolling_mean(window_size=self.vwap_window).alias("OBI")
@@ -108,13 +108,13 @@ class OBIVWAPStrategy:
         df = df.with_columns(
             pl.when(
             (pl.col("OBI") > self.obi_threshold) & 
-            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
+            (pl.max_horizontal("bidsiz", "asksiz") >= self.size_threshold) &
             (pl.col("MID_PRICE") < pl.col("VWAP") * (1 + self.vwap_threshold))
             )
             .then(1)
             .when(
             (pl.col("OBI") < -self.obi_threshold) & 
-            (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold) &
+            (pl.max_horizontal("bidsiz", "asksiz") >= self.size_threshold) &
             (pl.col("MID_PRICE") > pl.col("VWAP") * (1 - self.vwap_threshold))
             )
             .then(-1)
@@ -125,8 +125,8 @@ class OBIVWAPStrategy:
         # Ensure Signal is 0 when TIME_M is outside the allowed range
         df = df.with_columns(
             pl.when(
-                (pl.col("TIME_M") < pl.time(*self.start_time)) | 
-                (pl.col("TIME_M") > pl.time(*self.end_time))
+                (pl.col("time_m") < pl.time(*self.start_time)) | 
+                (pl.col("time_m") > pl.time(*self.end_time))
             )
             .then(pl.lit(0))
             .otherwise(pl.col("Signal"))
@@ -151,25 +151,25 @@ class OBIVWAPStrategy:
             signal = row["Signal"]
 
             # Buy signal
-            if signal == 1 and self.position == 0 and self.cash >= row["ASK"] * 100:
-                self.cash -= row["ASK"] * 100
+            if signal == 1 and self.position == 0 and self.cash >= row["ask"] * 100:
+                self.cash -= row["ask"] * 100
                 self.position = 100
 
             # Sell signal
             elif signal == -1 and self.position == 0:
-                self.cash += row["BID"] * 100
+                self.cash += row["bid"] * 100
                 self.position = -100
 
             # Close position
             elif signal == 0 and self.position != 0:
                 if self.position > 0:
-                    self.cash += row["BID"] * self.position
+                    self.cash += row["bid"] * self.position
                 else:
-                    self.cash -= row["ASK"] * abs(self.position)
+                    self.cash -= row["ask"] * abs(self.position)
                 self.position = 0
 
             # Mark-to-market balance
-            market_price = row["ASK"] if self.position > 0 else row["BID"] if self.position < 0 else 0
+            market_price = row["ask"] if self.position > 0 else row["bid"] if self.position < 0 else 0
             account_balance.append(self.cash + self.position * market_price)
 
         return df.with_columns(pl.Series("Account_Balance", account_balance, dtype=pl.Float64))

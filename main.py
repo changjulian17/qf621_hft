@@ -1,4 +1,4 @@
-from src.data_loader import load_and_filter_data
+from src.wrds_pull import fetch_taq_data
 from src.strategy import OBIVWAPStrategy
 from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
@@ -6,17 +6,20 @@ import matplotlib.pyplot as plt
 import polars as pl
 import itertools
 
+# --- File Constants ---
+TICKERS = ['FTAI', 'WLFC', 'HEES', 'AL', 'GATX', 'ALTG']
+EX_FILTER = "'Q', 'N'"  # Exchange filter use comma to separate multiple exchanges
+QU_COND_FILTER = "'R'"  # Quote condition filter use comma to separate multiple quote conditions
+START_DATE = '2023-05-10'
+END_DATE = '2023-05-11'
+START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
+END_TIME = (15, 36)   # End time for generating signals (HH, MM)
+
 # Configuration Parameters
 VWAP_WINDOW = 500  # Rolling window size for VWAP calculation
 OBI_THRESHOLD = 0.1  # Threshold for Order Book Imbalance (OBI) signals
 SIZE_THRESHOLD = 2  # Minimum size threshold for bid and ask sizes
 VWAP_THRESHOLD = 0.1  # VWAP threshold for signal generation
-
-EX_FILTER = "N"  # Exchange filter
-QU_COND_FILTER = "R"  # Quote condition filter
-START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
-END_TIME = (15, 36)  # End time for generating signals (HH, MM)
-DATA_FILE = "./data/stock_sample12.csv"
 
 """
 Main script for running the high-frequency trading analysis.
@@ -37,22 +40,24 @@ Usage:
 if __name__ == "__main__":
     print("Loading data...")
 
-    # Load and filter data for all tickers
-    df = load_and_filter_data(
-        DATA_FILE,
-        ex_filter=EX_FILTER,
-        qu_cond_filter=QU_COND_FILTER
+    # Load data from WRDS instead of CSV
+    df = fetch_taq_data(
+        tickers=TICKERS,
+        exchanges=EX_FILTER,
+        quote_conds=QU_COND_FILTER,
+        start_date=START_DATE,
+        end_date=END_DATE
     )
 
-    # Extract unique stock tickers from the SYM_ROOT column
-    stock_tickers = df["SYM_ROOT"].unique().to_list()
+    # Extract unique stock tickers from the sym_root column
+    stock_tickers = df["sym_root"].unique().to_list()
     print(f"Found stock tickers: {stock_tickers} in {EX_FILTER} exchange with {QU_COND_FILTER} quote condition")
 
     for ticker in stock_tickers:
         print(f"Processing {ticker}...")
 
         # Filter data for the specific ticker
-        ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
+        ticker_data = df.filter(pl.col("sym_root") == ticker)
 
         # Apply strategy
         strategy = OBIVWAPStrategy(
@@ -88,7 +93,7 @@ if __name__ == "__main__":
         print(f"Testing VWAP_WINDOW={vwap_window}, OBI_THRESHOLD={obi_threshold}, SIZE_THRESHOLD={size_threshold}, VWAP_THRESHOLD={vwap_threshold}")
         all_metrics = []
         for ticker in stock_tickers:
-            ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
+            ticker_data = df.filter(pl.col("sym_root") == ticker)
             strategy = OBIVWAPStrategy(
                 vwap_window=vwap_window, 
                 obi_threshold=obi_threshold, 
@@ -99,6 +104,7 @@ if __name__ == "__main__":
             )
             ticker_data = strategy.generate_signals(ticker_data)
             backtest_data = strategy.backtest(ticker_data)
+            plot_account_balance(backtest_data)
             metrics = evaluate_strategy_performance(backtest_data)
             all_metrics.append(metrics["Total_Returns"])  # or use another metric
 

@@ -15,17 +15,17 @@ def plot_account_balance(backtest_data: pl.DataFrame):
     Returns:
         None
     """
-    backtest_data = backtest_data.with_columns(
-        (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("TIME_M").cast(pl.Utf8))
-        .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
-        .alias("TIME_M")
-    )
+    # backtest_data = backtest_data.with_columns(
+    #     (pl.col("date").cast(pl.Utf8) + " " + pl.col("time_m").cast(pl.Utf8))
+    #     .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
+    #     .alias("time_m")
+    # )
     pdf = backtest_data.to_pandas()
-    for ticker in set(pdf['SYM_ROOT']):
-        ticker_df = pdf[pdf['SYM_ROOT'] == ticker]
+    for ticker in set(pdf['sym_root']):
+        ticker_df = pdf[pdf['sym_root'] == ticker]
         plt.figure(figsize=(12, 6))
-        plt.plot(ticker_df["TIME_M"], ticker_df["Account_Balance"])
-        plt.xlabel("TIME_M")
+        plt.plot(ticker_df["Timestamp"], ticker_df["Account_Balance"])
+        plt.xlabel("time_m")
         plt.ylabel("Account_Balance")
         plt.title(f"Account Balance for {ticker}")
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
