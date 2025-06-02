@@ -9,7 +9,7 @@ Initial results are not good:
   - use together with volume and VWAP?
 - try across a larger range of stocks including small cap names
 - analyse tracking multiple levels of bid-offer than the best one given by EX (rolling window of size?)
-- working list: FTAI, ZION, XOMA
+- working list: FTAI, ZION, XOMA, AL, ALTG
 
 ways to recover:
 
