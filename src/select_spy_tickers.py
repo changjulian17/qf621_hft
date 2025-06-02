@@ -2,7 +2,7 @@ import polars as pl
 import yfinance as yf
 import random
 from typing import List
-from datetime import datetime as dttm
+import datetime
 
 def select_random_lowcap_spy_tickers(
     start_date: str,
@@ -29,7 +29,7 @@ def select_random_lowcap_spy_tickers(
     # Load S&P 500 historical components
     df = pl.read_csv(sp500_csv_path)
     df = df.with_columns(pl.col("date").str.strptime(pl.Date, "%Y-%m-%d"))
-    start_date_dt = dttm.strptime(start_date, "%Y-%m-%d")
+    start_date_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d")
     df = df.filter(pl.col("date") <= start_date_dt)
     if df.is_empty():
         raise ValueError("No tickers found for or before the given start_date.")
@@ -39,7 +39,6 @@ def select_random_lowcap_spy_tickers(
 
     # Download market cap data using yfinance
     market_caps = {}
-    import datetime
     prev_close_date = (datetime.datetime.strptime(start_date, "%Y-%m-%d") - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     for ticker in tickers: 
         try:

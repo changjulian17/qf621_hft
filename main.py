@@ -4,8 +4,8 @@ from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
 import polars as pl
 import random
+random.seed(42)
 
-# Read 10 random tickers from file
 with open("data/filtered_tickers.txt") as f:
     all_filtered = [line.strip() for line in f if line.strip()]
 TICKERS = random.sample(all_filtered, min(10, len(all_filtered)))
@@ -17,7 +17,6 @@ END_DATE = '2023-05-11'
 START_TIME = (9, 55)         # Intraday start (HH, MM)
 END_TIME = (15, 36)          # Intraday end (HH, MM)
 
-# Strategy params
 VWAP_WINDOW = 500
 OBI_THRESHOLD = 0.1
 SIZE_THRESHOLD = 2

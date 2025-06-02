@@ -1,6 +1,7 @@
 import wrds
 import polars as pl
 import matplotlib.pyplot as plt
+import time
 
 def fetch_taq_data(
     tickers,
@@ -53,20 +54,23 @@ def fetch_taq_data(
           AND date BETWEEN '{start_date}' AND '{end_date}'
           AND time_m BETWEEN '{start_time}' AND '{end_time}'
     """
+    start_time_query = time.time()
     data = db.raw_sql(query)
-    print("Data fetched successfully.")
+    end_time_query = time.time()
+    print(f"Data fetched successfully. Query time: {end_time_query - start_time_query:.2f} seconds.")
 
     # Convert to Polars DataFrame first
     data = pl.from_pandas(data)
 
     data = data.with_columns(
-        (pl.col("date").cast(pl.Utf8) + " " 
-         + pl.col("time_m").cast(pl.Utf8)
-         + pl.col("time_m_nano").cast(pl.Utf8))
-        .str.strptime(pl.Datetime("ns"), 
-                      format="%Y-%m-%d %H:%M:%S%.f")
-        .alias("Timestamp")
-    ).sort("Timestamp")
+                (
+                    pl.col("date").cast(pl.Utf8) + " " +
+                    pl.col("time_m").cast(pl.Utf8).str.replace(r"^(\d{2}:\d{2}:\d{2})$", r"$1.000000") +
+                    pl.col("time_m_nano").cast(pl.Utf8).str.pad_end(3, "0")
+                )
+                .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
+                .alias("Timestamp")
+            ).sort("Timestamp")
 
     return data
 
