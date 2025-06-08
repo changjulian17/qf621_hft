@@ -514,3 +514,464 @@ class OBIVWAPStrategy:
         
         return df
 
+class StrategyPortfolio:
+    """
+    Manages multiple trading strategies simultaneously, each with its own portfolio.
+    
+    This class allows running and tracking multiple strategies in parallel, with each
+    strategy maintaining its own position, cash balance, and performance metrics.
+    
+    Attributes:
+        strategies (dict): Dictionary mapping strategy names to strategy instances
+        initial_cash (float): Initial cash balance for each strategy
+        portfolio_weights (dict): Dictionary mapping strategy names to their portfolio weights
+        rebalance_threshold (float): Threshold for portfolio rebalancing
+        last_rebalance_date (datetime): Date of last portfolio rebalancing
+        
+    Methods:
+        add_strategy(name: str, strategy: BaseStrategy, weight: float = None):
+            Adds a new strategy to the portfolio
+        remove_strategy(name: str):
+            Removes a strategy from the portfolio
+        rebalance_portfolio():
+            Rebalances the portfolio according to target weights
+        run_backtest(data: pl.DataFrame) -> dict:
+            Runs backtest for all strategies and returns combined results
+        get_portfolio_performance() -> dict:
+            Returns combined portfolio performance metrics
+    """
+    
+    def __init__(self, initial_cash: float = 1_000_000, rebalance_threshold: float = 0.1):
+        """Initialize the strategy portfolio."""
+        self.strategies = {}
+        self.initial_cash = initial_cash
+        self.portfolio_weights = {}
+        self.rebalance_threshold = rebalance_threshold
+        self.last_rebalance_date = None
+        self.portfolio_value = initial_cash
+        self.portfolio_history = []
+        
+    def add_strategy(self, name: str, strategy: 'OBIVWAPStrategy', weight: float = None):
+        """Add a new strategy to the portfolio."""
+        if name in self.strategies:
+            raise ValueError(f"Strategy {name} already exists in portfolio")
+            
+        # Initialize strategy with its portion of initial cash
+        if weight is not None:
+            strategy_cash = self.initial_cash * weight
+            strategy.cash = strategy_cash
+            self.portfolio_weights[name] = weight
+        else:
+            # Equal weight if not specified
+            strategy_cash = self.initial_cash / (len(self.strategies) + 1)
+            strategy.cash = strategy_cash
+            self.portfolio_weights[name] = 1.0 / (len(self.strategies) + 1)
+            
+        self.strategies[name] = strategy
+        
+        # Rebalance existing strategies
+        if len(self.strategies) > 1:
+            self.rebalance_portfolio()
+            
+    def remove_strategy(self, name: str):
+        """Remove a strategy from the portfolio."""
+        if name not in self.strategies:
+            raise ValueError(f"Strategy {name} not found in portfolio")
+            
+        # Close positions and redistribute cash
+        strategy = self.strategies[name]
+        remaining_cash = strategy.cash + (strategy.position * strategy.entry_price if strategy.position != 0 else 0)
+        
+        del self.strategies[name]
+        del self.portfolio_weights[name]
+        
+        # Redistribute cash to remaining strategies
+        if self.strategies:
+            cash_per_strategy = remaining_cash / len(self.strategies)
+            for s in self.strategies.values():
+                s.cash += cash_per_strategy
+                
+        self.rebalance_portfolio()
+        
+    def rebalance_portfolio(self):
+        """Rebalance the portfolio according to target weights."""
+        total_value = sum(
+            s.cash + (s.position * s.entry_price if s.position != 0 else 0)
+            for s in self.strategies.values()
+        )
+        
+        for name, strategy in self.strategies.items():
+            current_value = strategy.cash + (strategy.position * strategy.entry_price if strategy.position != 0 else 0)
+            target_value = total_value * self.portfolio_weights[name]
+            
+            # Check if rebalancing is needed
+            if abs(current_value - target_value) / target_value > self.rebalance_threshold:
+                # Close existing position
+                if strategy.position != 0:
+                    strategy.cash += strategy.position * strategy.entry_price
+                    strategy.position = 0
+                    strategy.entry_price = 0
+                
+                # Set new cash balance
+                strategy.cash = target_value
+                
+    def run_backtest(self, data: pl.DataFrame) -> dict:
+        """Run backtest for all strategies and return combined results."""
+        results = {}
+        portfolio_values = []
+        
+        # Run backtest for each strategy
+        for name, strategy in self.strategies.items():
+            strategy_data = data.copy()
+            results[name] = strategy.backtest(strategy_data)
+            
+        # Combine results
+        for i in range(len(data)):
+            portfolio_value = 0
+            for name, result in results.items():
+                portfolio_value += result["Account_Balance"][i]
+            portfolio_values.append(portfolio_value)
+            
+        # Add portfolio value to results
+        results["Portfolio"] = data.with_columns(
+            pl.Series("Portfolio_Value", portfolio_values)
+        )
+        
+        # Calculate portfolio metrics
+        portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
+        results["Metrics"] = portfolio_metrics
+        
+        return results
+        
+    def calculate_portfolio_metrics(self, portfolio_data: pl.DataFrame) -> dict:
+        """Calculate combined portfolio performance metrics."""
+        returns = portfolio_data["Portfolio_Value"].pct_change()
+        
+        # Calculate metrics
+        total_return = (portfolio_data["Portfolio_Value"][-1] / portfolio_data["Portfolio_Value"][0] - 1) * 100
+        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
+        
+        # Calculate drawdown
+        peak = portfolio_data["Portfolio_Value"].cummax()
+        drawdown = (portfolio_data["Portfolio_Value"] - peak) / peak
+        max_drawdown = drawdown.min() * 100
+        
+        # Calculate Sortino ratio
+        downside_returns = returns[returns < 0]
+        sortino_ratio = (returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
+        
+        return {
+            "Total_Return": total_return,
+            "Sharpe_Ratio": sharpe_ratio,
+            "Sortino_Ratio": sortino_ratio,
+            "Max_Drawdown": max_drawdown
+        }
+        
+    def get_portfolio_performance(self) -> dict:
+        """Return current portfolio performance metrics."""
+        total_value = sum(
+            s.cash + (s.position * s.entry_price if s.position != 0 else 0)
+            for s in self.strategies.values()
+        )
+        
+        strategy_values = {
+            name: s.cash + (s.position * s.entry_price if s.position != 0 else 0)
+            for name, s in self.strategies.items()
+        }
+        
+        return {
+            "Total_Value": total_value,
+            "Strategy_Values": strategy_values,
+            "Weights": self.portfolio_weights
+        }
+
+class MeanReversionStrategy:
+    """
+    Implements a mean reversion strategy based on price deviations from VWAP.
+    
+    This strategy generates trading signals when price deviates significantly from VWAP
+    and shows signs of mean reversion, using volume and volatility filters.
+    
+    Attributes:
+        vwap_window (int): Rolling window size for VWAP calculation
+        deviation_threshold (float): Threshold for price deviation from VWAP
+        volatility_window (int): Window size for volatility calculation
+        volume_window (int): Window size for volume analysis
+        max_position (int): Maximum position size
+        stop_loss_pct (float): Stop loss percentage
+        profit_target_pct (float): Profit target percentage
+        initial_cash (float): Initial cash balance
+        risk_per_trade (float): Percentage of portfolio to risk per trade
+        min_profit_threshold (float): Minimum expected profit
+        start_time (tuple): Earliest time for generating signals
+        end_time (tuple): Latest time for generating signals
+    """
+    
+    def __init__(self, vwap_window: int = 100, deviation_threshold: float = 0.002,
+                 volatility_window: int = 20, volume_window: int = 50,
+                 max_position: int = 100, stop_loss_pct: float = 0.3,
+                 profit_target_pct: float = 0.6, initial_cash: float = 100_000,
+                 risk_per_trade: float = 0.02, min_profit_threshold: float = 0.001,
+                 start_time: tuple = (9, 30, 865), end_time: tuple = (16, 28, 954)):
+        """Initialize the mean reversion strategy."""
+        self.vwap_window = vwap_window
+        self.deviation_threshold = deviation_threshold
+        self.volatility_window = volatility_window
+        self.volume_window = volume_window
+        self.max_position = max_position
+        self.stop_loss_pct = stop_loss_pct
+        self.profit_target_pct = profit_target_pct
+        self.risk_per_trade = risk_per_trade
+        self.min_profit_threshold = min_profit_threshold
+        self.cash = initial_cash
+        self.position = 0
+        self.entry_price = 0
+        self.trades = []
+        self.start_time = start_time
+        self.end_time = end_time
+        
+    def calculate_vwap(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate VWAP and price deviation metrics."""
+        df = df.with_columns(
+            ((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"),
+            (pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume")
+        )
+        
+        # Calculate VWAP
+        df = df.with_columns(
+            (
+                (pl.col("MID_PRICE") * pl.col("Volume")).rolling_sum(window_size=self.vwap_window)
+                / pl.col("Volume").rolling_sum(window_size=self.vwap_window)
+            ).alias("VWAP")
+        )
+        
+        # Calculate price deviation from VWAP
+        df = df.with_columns(
+            ((pl.col("MID_PRICE") - pl.col("VWAP")) / pl.col("VWAP")).alias("Price_Deviation")
+        )
+        
+        return df
+        
+    def calculate_volatility(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate volatility and volume metrics."""
+        # Price volatility
+        df = df.with_columns(
+            pl.col("MID_PRICE").pct_change()
+            .abs()
+            .rolling_mean(window_size=self.volatility_window)
+            .alias("Volatility")
+        )
+        
+        # Volume trend
+        df = df.with_columns(
+            pl.col("Volume").rolling_mean(window_size=self.volume_window).alias("Volume_MA"),
+            (pl.col("Volume") / pl.col("Volume").rolling_mean(window_size=self.volume_window)).alias("Volume_Ratio")
+        )
+        
+        return df
+        
+    def calculate_mean_reversion_score(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Calculate mean reversion indicators."""
+        # RSI-like indicator for price deviation
+        df = df.with_columns(
+            pl.col("Price_Deviation").rolling_mean(window_size=self.volatility_window).alias("Deviation_MA")
+        )
+        
+        # Mean reversion score
+        df = df.with_columns(
+            (
+                (pl.col("Price_Deviation") - pl.col("Deviation_MA")) /
+                pl.col("Volatility")
+            ).alias("Mean_Reversion_Score")
+        )
+        
+        return df
+        
+    def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Generate trading signals based on mean reversion indicators."""
+        df = self.calculate_vwap(df)
+        df = self.calculate_volatility(df)
+        df = self.calculate_mean_reversion_score(df)
+        
+        # Generate signals with multiple confirmations
+        df = df.with_columns(
+            pl.when(
+                # Long signal conditions
+                (pl.col("Price_Deviation") < -self.deviation_threshold) &  # Price below VWAP
+                (pl.col("Mean_Reversion_Score") < -1.5) &  # Strong mean reversion signal
+                (pl.col("Volume_Ratio") > 1.2) &  # Above average volume
+                (pl.col("Volatility") < pl.col("Volatility").rolling_mean(window_size=100))  # Low volatility
+            )
+            .then(1)
+            .when(
+                # Short signal conditions
+                (pl.col("Price_Deviation") > self.deviation_threshold) &  # Price above VWAP
+                (pl.col("Mean_Reversion_Score") > 1.5) &  # Strong mean reversion signal
+                (pl.col("Volume_Ratio") > 1.2) &  # Above average volume
+                (pl.col("Volatility") < pl.col("Volatility").rolling_mean(window_size=100))  # Low volatility
+            )
+            .then(-1)
+            .otherwise(0)
+            .alias("Signal")
+        )
+        
+        # Filter signals by trading hours
+        df = df.with_columns(
+            pl.when(
+                (pl.col("TIME_M") < pl.time(*self.start_time)) | 
+                (pl.col("TIME_M") > pl.time(*self.end_time))
+            )
+            .then(pl.lit(0))
+            .otherwise(pl.col("Signal"))
+            .alias("Signal")
+        )
+        
+        return df
+        
+    def calculate_position_size(self, price: float, volatility: float, portfolio_value: float) -> int:
+        """Calculate optimal position size based on risk and volatility."""
+        if volatility == 0:
+            return 0
+            
+        # Risk-based position sizing
+        risk_amount = portfolio_value * self.risk_per_trade
+        risk_per_share = price * volatility * 2
+        
+        if risk_per_share == 0:
+            return 0
+            
+        position_size = int(risk_amount / risk_per_share)
+        return min(position_size, self.max_position)
+        
+    def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Run backtest simulation and return performance metrics."""
+        account_balance = []
+        positions = []
+        trades = []
+        last_signal = 0
+        
+        for i, row in enumerate(df.iter_rows(named=True)):
+            signal = row["Signal"]
+            mid_price = row["MID_PRICE"]
+            current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
+            
+            # Calculate position size
+            volatility = row.get("Volatility", 0.01)
+            
+            # Process existing position
+            if self.position != 0:
+                unrealized_pnl = (mid_price - self.entry_price) * self.position
+                unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
+                
+                if (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
+                   (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
+                    # Stop loss hit
+                    self.cash += mid_price * self.position
+                    trades.append(("Stop Loss", self.position, self.entry_price, mid_price))
+                    self.position = 0
+                    self.entry_price = 0
+                    
+                elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
+                     (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
+                    # Take profit hit
+                    self.cash += mid_price * self.position
+                    trades.append(("Take Profit", self.position, self.entry_price, mid_price))
+                    self.position = 0
+                    self.entry_price = 0
+            
+            # Process new signals
+            if signal != 0 and signal != last_signal:
+                position_size = self.calculate_position_size(mid_price, volatility, current_portfolio)
+                
+                if signal == 1 and self.position <= 0:
+                    # Close any existing short position
+                    if self.position < 0:
+                        self.cash -= row["ASK"] * abs(self.position)
+                        trades.append(("Close Short", self.position, self.entry_price, row["ASK"]))
+                        self.position = 0
+                    
+                    # Open long position
+                    if position_size > 0 and self.cash >= row["ASK"] * position_size:
+                        self.cash -= row["ASK"] * position_size
+                        self.position = position_size
+                        self.entry_price = row["ASK"]
+                        trades.append(("Buy", position_size, row["ASK"], None))
+                        
+                elif signal == -1 and self.position >= 0:
+                    # Close any existing long position
+                    if self.position > 0:
+                        self.cash += row["BID"] * self.position
+                        trades.append(("Close Long", self.position, self.entry_price, row["BID"]))
+                        self.position = 0
+                    
+                    # Open short position
+                    if position_size > 0:
+                        self.cash += row["BID"] * position_size
+                        self.position = -position_size
+                        self.entry_price = row["BID"]
+                        trades.append(("Sell", -position_size, row["BID"], None))
+            
+            # Update tracking variables
+            current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
+            account_balance.append(current_balance)
+            positions.append(self.position)
+            last_signal = signal
+            
+        # Calculate performance metrics
+        df = df.with_columns(
+            pl.Series("Account_Balance", account_balance, dtype=pl.Float64),
+            pl.Series("Position", positions, dtype=pl.Int64)
+        )
+        
+        # Calculate returns and metrics
+        df = df.with_columns(
+            pl.col("Account_Balance").pct_change().alias("Returns")
+        )
+        
+        # Calculate rolling maximum for drawdown
+        df = df.with_columns(
+            pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value")
+        )
+        
+        df = df.with_columns(
+            ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
+        )
+        
+        # Calculate performance metrics
+        avg_daily_return = df.select(pl.col("Returns").mean()).item()
+        std_daily_return = df.select(pl.col("Returns").std()).item()
+        risk_free_rate = 0.01 / 252  # Assuming 1% annual risk-free rate
+        
+        sharpe_ratio = ((avg_daily_return - risk_free_rate) / std_daily_return) * np.sqrt(252) if std_daily_return > 0 else 0
+        
+        # Calculate Sortino Ratio
+        downside_returns = df.filter(pl.col("Returns") < 0).select("Returns")
+        downside_deviation = downside_returns.select(pl.col("Returns").std()).item() if len(downside_returns) > 0 else 0
+        sortino_ratio = ((avg_daily_return - risk_free_rate) / downside_deviation) * np.sqrt(252) if downside_deviation > 0 else 0
+        
+        # Maximum drawdown
+        max_drawdown = df.select(pl.col("Drawdown").max()).item()
+        
+        # Print performance metrics
+        print(f"\nMean Reversion Strategy Performance Metrics:")
+        print(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+        print(f"Sortino Ratio: {sortino_ratio:.4f}")
+        print(f"Maximum Drawdown: {max_drawdown:.4%}")
+        print(f"Total Return: {(account_balance[-1] / account_balance[0] - 1):.4%}")
+        print(f"Number of Trades: {len(trades)}")
+        
+        # Calculate win rate and profit metrics
+        profitable_trades = sum(1 for t in trades if 
+                              (t[0] in ["Take Profit", "Close Long", "Close Short"]) and
+                              ((t[1] > 0 and t[3] > t[2]) or (t[1] < 0 and t[3] < t[2])))
+        win_rate = profitable_trades / len(trades) if trades else 0
+        print(f"Win Rate: {win_rate:.2%}")
+        
+        # Calculate average profit per trade
+        if trades:
+            profits = [(t[3] - t[2]) * t[1] for t in trades if t[3] is not None]
+            avg_profit = sum(profits) / len(profits) if profits else 0
+            print(f"Average Profit per Trade: ${avg_profit:.2f}")
+        
+        return df
+

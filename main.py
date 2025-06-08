@@ -1,5 +1,5 @@
 from src.data_loader import load_and_filter_data
-from src.strategy import OBIVWAPStrategy
+from src.strategy import OBIVWAPStrategy, MeanReversionStrategy, StrategyPortfolio
 from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
 import matplotlib.pyplot as plt
@@ -37,8 +37,19 @@ Usage:
 """
 
 def main():
-    # Create strategy instance with 20% risk per trade
-    strategy = OBIVWAPStrategy(
+    # Load market data
+    print("Loading data...")
+    data = load_and_filter_data(
+        DATA_FILE,
+        ex_filter=EX_FILTER,
+        qu_cond_filter=QU_COND_FILTER
+    )
+    
+    # Create strategy portfolio
+    portfolio = StrategyPortfolio(initial_cash=1_000_000, rebalance_threshold=0.1)
+    
+    # Create and add OBI-VWAP strategy
+    obi_strategy = OBIVWAPStrategy(
         vwap_window=500,
         obi_window=20,
         price_impact_window=50,
@@ -52,21 +63,75 @@ def main():
         stop_loss_pct=0.5,
         profit_target_pct=1.0,
         initial_cash=100_000,
-        risk_per_trade=0.20,  # Using 20% risk per trade as requested
-        min_profit_threshold=0.001
+        risk_per_trade=0.20,
+        min_profit_threshold=0.001,
+        start_time=START_TIME,
+        end_time=END_TIME
     )
+    portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.6)
     
-    try:
-        # Load market data
-        data = pl.read_csv("data/3_stock_trading_hrs.csv")
+    # Create and add Mean Reversion strategy
+    mean_rev_strategy = MeanReversionStrategy(
+        vwap_window=100,
+        deviation_threshold=0.002,
+        volatility_window=20,
+        volume_window=50,
+        max_position=100,
+        stop_loss_pct=0.3,
+        profit_target_pct=0.6,
+        initial_cash=100_000,
+        risk_per_trade=0.20,
+        min_profit_threshold=0.001,
+        start_time=START_TIME,
+        end_time=END_TIME
+    )
+    portfolio.add_strategy("Mean-Reversion", mean_rev_strategy, weight=0.4)
+    
+    # Extract unique stock tickers
+    stock_tickers = data["SYM_ROOT"].unique().to_list()
+    print(f"Found stock tickers: {stock_tickers}")
+    
+    # Run backtest for each ticker
+    all_results = {}
+    for ticker in stock_tickers:
+        print(f"\nProcessing {ticker}...")
         
-        # Run backtest
-        results = strategy.backtest(data)
+        # Filter data for the specific ticker
+        ticker_data = data.filter(pl.col("SYM_ROOT") == ticker)
         
-        # Results are already printed in the backtest method
+        # Run portfolio backtest
+        results = portfolio.run_backtest(ticker_data)
+        all_results[ticker] = results
         
-    except Exception as e:
-        print(f"Error running strategy: {str(e)}")
+        # Print portfolio metrics
+        print(f"\nPortfolio Performance for {ticker}:")
+        print(f"Total Return: {results['Metrics']['Total_Return']:.2f}%")
+        print(f"Sharpe Ratio: {results['Metrics']['Sharpe_Ratio']:.4f}")
+        print(f"Sortino Ratio: {results['Metrics']['Sortino_Ratio']:.4f}")
+        print(f"Maximum Drawdown: {results['Metrics']['Max_Drawdown']:.2f}%")
+        
+        # Plot portfolio value
+        plt.figure(figsize=(12, 6))
+        plt.plot(results['Portfolio']['Portfolio_Value'], label='Portfolio Value')
+        plt.title(f'Portfolio Performance - {ticker}')
+        plt.xlabel('Time')
+        plt.ylabel('Portfolio Value ($)')
+        plt.legend()
+        plt.grid(True)
+        
+        # Plot individual strategy performance
+        plt.figure(figsize=(12, 6))
+        for strategy_name in ['OBI-VWAP', 'Mean-Reversion']:
+            plt.plot(results[strategy_name]['Account_Balance'], 
+                    label=f'{strategy_name} Strategy')
+        plt.title(f'Strategy Performance Comparison - {ticker}')
+        plt.xlabel('Time')
+        plt.ylabel('Account Balance ($)')
+        plt.legend()
+        plt.grid(True)
+    
+    # Show all plots
+    plt.show()
 
 if __name__ == "__main__":
     main()
