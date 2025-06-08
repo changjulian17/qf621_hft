@@ -84,7 +84,7 @@ if __name__ == "__main__":
         start_date="2023-03-10",
         sp500_csv_path="data/S&P 500 Historical Components & Changes(03-10-2025).csv",
         master_file_path="data/master_file.csv",  # Update this path as needed
-        n_lowest=100,
+        n_lowest=500,
         n_select=10 
     )
     print("Selected tickers:", tickers)

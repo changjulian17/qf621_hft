@@ -4,6 +4,8 @@ from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
 import polars as pl
 import random
+import os
+import gc
 # random.seed(42)
 
 EX_FILTER = "'Q', 'T', 'N'"
@@ -27,7 +29,7 @@ if __name__ == "__main__":
 
     positive_return_tickers = []
 
-    for batch_num, batch in enumerate(chunked(all_filtered, 10), 1):
+    for batch_num, batch in enumerate(chunked(all_filtered, 8), 1):
         print(f"\nProcessing batch {batch_num}: {batch}")
         df = fetch_taq_data(
             tickers=batch,
@@ -54,15 +56,16 @@ if __name__ == "__main__":
             )
             ticker_data = strategy.generate_signals(ticker_data)
             backtest_data = strategy.backtest(ticker_data)
-            plot_account_balance(backtest_data)
+            # plot_account_balance(backtest_data)
             metrics = evaluate_strategy_performance(backtest_data)
             if metrics.get("Total_Returns", 0) > 0:
                 positive_return_tickers.append(ticker)
+        del df
+        gc.collect()
 
-    # Save tickers with positive returns to a text file
-    with open("data/positive_return_tickers.txt", "w") as f:
-        for t in positive_return_tickers:
-            f.write(f"{t}\n")
+        with open("data/positive_return_tickers.txt", "w") as f:
+            for t in positive_return_tickers:
+                f.write(f"{t}\n")
 
     print("\nTickers with Total_Returns > 0 saved to data/positive_return_tickers.txt")
 
