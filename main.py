@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     positive_return_tickers = []
 
-    for batch_num, batch in enumerate(chunked(all_filtered, 8), 1):
+    for batch_num, batch in enumerate(chunked(all_filtered[469:], 2), 1): # TODO remove splice
         print(f"\nProcessing batch {batch_num}: {batch}")
         df = fetch_taq_data(
             tickers=batch,
