@@ -143,9 +143,11 @@ class OBIVWAPStrategy:
             df (pl.DataFrame): Market data with 'Signal', 'ASK', 'BID'
         
         Returns:
-            pl.DataFrame: Data with account balance over time
+            pl.DataFrame: Data with account balance over time and cumulative trades
         """
         account_balance = []
+        cumulative_trades = []
+        trades = 0
 
         for row in df.iter_rows(named=True):
             signal = row["Signal"]
@@ -154,11 +156,13 @@ class OBIVWAPStrategy:
             if signal == 1 and self.position == 0 and self.cash >= row["ask"] * 100:
                 self.cash -= row["ask"] * 100
                 self.position = 100
+                trades += 1
 
             # Sell signal
             elif signal == -1 and self.position == 0:
                 self.cash += row["bid"] * 100
                 self.position = -100
+                trades += 1
 
             # Close position
             elif signal == 0 and self.position != 0:
@@ -167,10 +171,15 @@ class OBIVWAPStrategy:
                 else:
                     self.cash -= row["ask"] * abs(self.position)
                 self.position = 0
+                trades += 1
 
             # Mark-to-market balance
             market_price = row["ask"] if self.position > 0 else row["bid"] if self.position < 0 else 0
             account_balance.append(self.cash + self.position * market_price)
+            cumulative_trades.append(trades)
 
-        return df.with_columns(pl.Series("Account_Balance", account_balance, dtype=pl.Float64))
+        return df.with_columns([
+            pl.Series("Account_Balance", account_balance, dtype=pl.Float64),
+            pl.Series("Cumulative_Trades", cumulative_trades, dtype=pl.Int64)
+        ])
 

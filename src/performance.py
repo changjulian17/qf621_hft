@@ -14,7 +14,7 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     Returns:
         dict: 
             A dictionary containing performance metrics such as total returns, 
-            max drawdown, and daily Sharpe ratios.
+            max drawdown, daily Sharpe ratios, and average bid-ask spread.
     """
     # Ensure "Account_Balance" exists in the DataFrame
     if "Account_Balance" not in backtest_data.columns:
@@ -48,11 +48,21 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
         )
     )
 
+    # Calculate average bid-ask spread as a liquidity metric
+    if "bid" in backtest_data.columns and "ask" in backtest_data.columns:
+        avg_bid_ask_spread = (backtest_data["ask"] - backtest_data["bid"]).mean()
+    else:
+        avg_bid_ask_spread = None
+
     # Print performance metrics
     ticker = backtest_data["sym_root"].unique()[0]
     print(f"\nPERFORMANCE {ticker} STATISTICS:")
     print(f"Total returns: {total_returns:.2f}%")
     print(f"Max drawdown: {max_drawdown:.2f}%")
+    if avg_bid_ask_spread is not None:
+        print(f"Average bid-ask spread: {avg_bid_ask_spread:.6f}")
+    else:
+        print("Average bid-ask spread: N/A (bid/ask columns missing)")
 
     # Print daily Sharpe ratios
     print("\nDAILY SHARPE RATIOS:")
@@ -63,4 +73,5 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
         "Total_Returns": total_returns,
         "Max_Drawdown": max_drawdown,
         "Daily_Sharpe_Ratios": daily_sharpe,
+        "Average_Bid_Ask_Spread": avg_bid_ask_spread,
     }
