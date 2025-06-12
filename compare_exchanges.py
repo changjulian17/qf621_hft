@@ -5,6 +5,7 @@ import polars as pl
 import random
 import gc
 import csv
+import os
 
 EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'"]
 # EXCHANGES = ["'Z'"]
@@ -112,14 +113,17 @@ def main():
                 "ticker", "exchange", "Total_Returns", "Max_Drawdown",
                 "Average_Sharpe", "Average_Bid_Ask_Spread", "Cumulative_Trades"
             ]
-            with open("data/exchange_comparison_metrics.csv", "w", newline="") as csvfile:
+            file_path = "data/exchange_comparison_metrics.csv"
+            write_header = not os.path.exists(file_path) or os.path.getsize(file_path) == 0
+            with open(file_path, "a", newline="") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
+                if write_header:
+                    writer.writeheader()
                 for row in batch_results:
                     writer.writerow(row)
-            print(f"Batch {batch_num} results written to data/exchange_comparison_metrics.csv")
+            print(f"Batch {batch_num} results written to {file_path}")
 
-    print("\nAll batches processed and last batch results saved to data/exchange_comparison_metrics.csv")
+    print("\nAll batches processed and results saved to data/exchange_comparison_metrics.csv")
 
 if __name__ == "__main__":
     main()
