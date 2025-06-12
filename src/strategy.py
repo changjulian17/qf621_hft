@@ -69,15 +69,14 @@ class OBIVWAPStrategy:
     """
     def __init__(self, vwap_window: int = 500, obi_window: int = 20,
                  price_impact_window: int = 50, momentum_window: int = 100,
-                 obi_threshold: float = 0.1, size_threshold: int = 3,
-                 vwap_threshold: float = 0.1, volatility_window: int = 50,
-                 trend_window: int = 20, max_position: int = 100,
-                 stop_loss_pct: float = 0.5, profit_target_pct: float = 1.0,
-                 initial_cash: float = 100_000, risk_per_trade: float = 0.02,
-                 min_profit_threshold: float = 0.001,
+                 obi_threshold: float = 0.01, size_threshold: int = 1,  # Further lowered thresholds
+                 vwap_threshold: float = 0.01, volatility_window: int = 50,
+                 trend_window: int = 20, max_position: int = 1000,  # Increased max position
+                 stop_loss_pct: float = 0.5, profit_target_pct: float = 1.0, risk_per_trade: float = 0.4,
+                 min_profit_threshold: float = 0.0001,
                  start_time: tuple = (9, 30, 865),
                  end_time: tuple = (16, 28, 954)):
-        """Enhanced initialization with microstructure indicators."""
+        """Enhanced initialization with microstructure indicators (aggressive version)."""
         self.vwap_window = vwap_window
         self.obi_window = obi_window
         self.price_impact_window = price_impact_window
@@ -92,7 +91,7 @@ class OBIVWAPStrategy:
         self.profit_target_pct = profit_target_pct
         self.risk_per_trade = risk_per_trade
         self.min_profit_threshold = min_profit_threshold
-        self.cash = initial_cash
+        self.cash = 100_000  # Fixed cash initialization
         self.position = 0
         self.entry_price = 0
         self.trades = []
@@ -277,44 +276,62 @@ class OBIVWAPStrategy:
         return df
 
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Generate trading signals with enhanced filtering and quality scores."""
-        df = self.calculate_vwap(df)
-        df = self.calculate_price_impact(df)
-        df = self.calculate_momentum_indicators(df)
-        df = self.calculate_volatility(df)
-        df = self.calculate_market_regime(df)
-        df = self.calculate_signal_quality(df)
+        """Generate trading signals with enhanced filtering and quality scores (aggressive version)."""
+        # Critical debugging
+        print("\nCritical Debug Information:")
+        print(f"Input DataFrame shape: {df.shape}")
+        print(f"Input DataFrame columns: {df.columns}")
         
-        # Generate signals with multiple confirmations
+        # Calculate basic metrics first
+        df = df.with_columns(
+            ((pl.col("BID") + pl.col("ASK")) / 2).alias("MID_PRICE"),
+            (pl.col("BIDSIZ") + pl.col("ASKSIZ")).alias("Volume")
+        )
+        
+        # Print sample of raw data
+        print("\nSample of raw data:")
+        print(df.select(["BID", "ASK", "BIDSIZ", "ASKSIZ", "MID_PRICE", "Volume"]).head())
+        
+        # Calculate VWAP
+        df = df.with_columns(
+            (
+                (pl.col("MID_PRICE") * pl.col("Volume")).rolling_sum(window_size=self.vwap_window)
+                / pl.col("Volume").rolling_sum(window_size=self.vwap_window)
+            ).alias("VWAP")
+        )
+        
+        # Calculate bid pressure
+        df = df.with_columns(
+            (pl.col("BIDSIZ") / (pl.col("BIDSIZ") + pl.col("ASKSIZ"))).alias("Bid_Pressure")
+        )
+        
+        # Print sample of calculated metrics
+        print("\nSample of calculated metrics:")
+        print(df.select(["MID_PRICE", "VWAP", "Bid_Pressure"]).head())
+        
+        # Generate signals with extremely loose conditions
         df = df.with_columns(
             pl.when(
-                # Long signal conditions
-                (pl.col("Bid_Pressure") > 0.5 + self.obi_threshold) &  # Strong buying pressure
-                (pl.col("Price_Momentum") > 0) &  # Positive momentum
-                (pl.col("MID_PRICE") < pl.col("VWAP_Lower")) &  # Price below VWAP support
-                (pl.col("Signal_Quality") >= 2) &  # Good signal quality
-                (pl.col("Vol_Quality") == 1) &  # Good volatility conditions
-                (pl.col("Spread_Quality") == 1) &  # Tight spreads
-                (pl.col("Mean_Reversion_Score") < -1.5) &  # Oversold condition
-                (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold)  # Sufficient liquidity
+                # Long signal conditions (extremely loose)
+                (pl.col("Bid_Pressure") > 0.5) &  # Just need slight buying pressure
+                (pl.col("MID_PRICE") < pl.col("VWAP"))  # Price below VWAP
             )
             .then(1)
             .when(
-                # Short signal conditions
-                (pl.col("Bid_Pressure") < 0.5 - self.obi_threshold) &  # Strong selling pressure
-                (pl.col("Price_Momentum") < 0) &  # Negative momentum
-                (pl.col("MID_PRICE") > pl.col("VWAP_Upper")) &  # Price above VWAP resistance
-                (pl.col("Signal_Quality") >= 2) &  # Good signal quality
-                (pl.col("Vol_Quality") == 1) &  # Good volatility conditions
-                (pl.col("Spread_Quality") == 1) &  # Tight spreads
-                (pl.col("Mean_Reversion_Score") > 1.5) &  # Overbought condition
-                (pl.max_horizontal("BIDSIZ", "ASKSIZ") >= self.size_threshold)  # Sufficient liquidity
+                # Short signal conditions (extremely loose)
+                (pl.col("Bid_Pressure") < 0.5) &  # Just need slight selling pressure
+                (pl.col("MID_PRICE") > pl.col("VWAP"))  # Price above VWAP
             )
             .then(-1)
             .otherwise(0)
             .alias("Signal")
         )
-
+        
+        # Print signal distribution
+        signal_counts = df.group_by("Signal").count()
+        print("\nSignal Distribution:")
+        print(signal_counts)
+        
         # Filter signals by trading hours
         df = df.with_columns(
             pl.when(
@@ -325,26 +342,18 @@ class OBIVWAPStrategy:
             .otherwise(pl.col("Signal"))
             .alias("Signal")
         )
-
+        
         return df
 
     def calculate_position_size(self, price: float, volatility: float, portfolio_value: float,
                               signal_quality: float) -> int:
-        """Calculate optimal position size based on risk, volatility, and signal quality."""
+        """Calculate optimal position size based on risk, volatility, and signal quality (aggressive version)."""
         if volatility == 0:
-            return 0
+            volatility = 0.001  # Prevent division by zero
             
-        # Kelly Criterion with signal quality adjustment
-        win_rate = 0.55 + (signal_quality / 10)  # Adjust win rate based on signal quality
-        risk_reward = self.profit_target_pct / self.stop_loss_pct
-        kelly_fraction = (win_rate * risk_reward - (1 - win_rate)) / risk_reward
-        
-        # Apply a conservative fraction of Kelly
-        conservative_kelly = kelly_fraction * 0.3
-        
-        # Adjust position size based on market conditions
-        risk_amount = portfolio_value * self.risk_per_trade * conservative_kelly
-        risk_per_share = price * volatility * 2
+        # Very aggressive position sizing
+        risk_amount = portfolio_value * self.risk_per_trade
+        risk_per_share = price * volatility
         
         if risk_per_share == 0:
             return 0
@@ -354,6 +363,10 @@ class OBIVWAPStrategy:
 
     def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
         """Enhanced backtesting with detailed performance tracking and risk management."""
+        # Generate signals first if they don't exist
+        if "Signal" not in df.columns:
+            df = self.generate_signals(df)
+        
         account_balance = []
         positions = []
         trades = []
@@ -361,101 +374,89 @@ class OBIVWAPStrategy:
         daily_returns = []
         current_day = None
         
+        print("\nStarting backtest...")
+        print(f"Initial cash: ${self.cash:,.2f}")
+        
         for i, row in enumerate(df.iter_rows(named=True)):
             signal = row["Signal"]
             mid_price = row["MID_PRICE"]
             current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
             
-            # Track daily returns
-            trade_date = row["Timestamp"].date()
-            if trade_date != current_day:
-                if current_day is not None:
-                    daily_return = (current_portfolio / account_balance[0] - 1) if account_balance else 0
-                    daily_returns.append((current_day, daily_return))
-                current_day = trade_date
-            
-            # Calculate optimal position size with signal quality
-            volatility = row.get("Vol_Adjusted_Vol", row.get("Volatility", 0.01))
-            signal_quality = row.get("Signal_Quality", 1)
-            
-            # Dynamic risk management
+            # Process existing position
             if self.position != 0:
                 unrealized_pnl = (mid_price - self.entry_price) * self.position
                 unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
                 
-                # Dynamic stop loss based on volatility
-                vol_adjusted_stop = self.stop_loss_pct * (1 + row.get("High_Vol_Regime", 0) * 0.5)
-                
-                # Dynamic profit target based on trend strength
-                trend_strength = abs(row.get("Short_Trend", 0))
-                profit_target = self.profit_target_pct * (1 + trend_strength)
-                
-                if (self.position > 0 and unrealized_pnl_pct <= -vol_adjusted_stop/100) or \
-                   (self.position < 0 and unrealized_pnl_pct >= vol_adjusted_stop/100):
+                # Dynamic stop loss and take profit
+                if (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
+                   (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
                     # Stop loss hit
                     self.cash += mid_price * self.position
                     trades.append(("Stop Loss", self.position, self.entry_price, mid_price))
                     self.position = 0
                     self.entry_price = 0
-                
-                elif (self.position > 0 and unrealized_pnl_pct >= profit_target/100) or \
-                     (self.position < 0 and unrealized_pnl_pct <= -profit_target/100):
+                    
+                elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
+                     (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
                     # Take profit hit
                     self.cash += mid_price * self.position
                     trades.append(("Take Profit", self.position, self.entry_price, mid_price))
                     self.position = 0
                     self.entry_price = 0
             
-            # Process new signals with quality check
+            # Process new signals
             if signal != 0 and signal != last_signal:
-                position_size = self.calculate_position_size(
-                    mid_price, volatility, current_portfolio, signal_quality
+                # Calculate position size (more aggressive)
+                position_size = min(
+                    int(current_portfolio * self.risk_per_trade / mid_price),
+                    self.max_position
                 )
                 
-                # Expected profit calculation with spread impact
-                spread = row["ASK"] - row["BID"]
-                expected_profit = (self.profit_target_pct/100 * mid_price - spread) * position_size
-                transaction_cost = spread * position_size
-                
-                # Additional quality checks
-                signal_strength = abs(row.get("Mean_Reversion_Score", 0))
-                min_profit_threshold = self.min_profit_threshold * (1 + signal_strength)
-                
-                if expected_profit > transaction_cost + (min_profit_threshold * current_portfolio):
-                    if signal == 1 and self.position <= 0:
-                        # Close any existing short position
-                        if self.position < 0:
-                            self.cash -= row["ASK"] * abs(self.position)
-                            trades.append(("Close Short", self.position, self.entry_price, row["ASK"]))
-                            self.position = 0
-                        
-                        # Open long position
-                        if position_size > 0 and self.cash >= row["ASK"] * position_size:
-                            self.cash -= row["ASK"] * position_size
-                            self.position = position_size
-                            self.entry_price = row["ASK"]
-                            trades.append(("Buy", position_size, row["ASK"], None))
+                if signal == 1 and self.position <= 0:
+                    # Close any existing short position
+                    if self.position < 0:
+                        self.cash -= row["ASK"] * abs(self.position)
+                        trades.append(("Close Short", self.position, self.entry_price, row["ASK"]))
+                        self.position = 0
                     
-                    elif signal == -1 and self.position >= 0:
-                        # Close any existing long position
-                        if self.position > 0:
-                            self.cash += row["BID"] * self.position
-                            trades.append(("Close Long", self.position, self.entry_price, row["BID"]))
-                            self.position = 0
+                    # Open long position
+                    if position_size > 0 and self.cash >= row["ASK"] * position_size:
+                        self.cash -= row["ASK"] * position_size
+                        self.position = position_size
+                        self.entry_price = row["ASK"]
+                        trades.append(("Buy", position_size, row["ASK"], None))
+                        print(f"Opening long position: {position_size} shares at ${row['ASK']:.2f}")
                         
-                        # Open short position
-                        if position_size > 0:
-                            self.cash += row["BID"] * position_size
-                            self.position = -position_size
-                            self.entry_price = row["BID"]
-                            trades.append(("Sell", -position_size, row["BID"], None))
+                elif signal == -1 and self.position >= 0:
+                    # Close any existing long position
+                    if self.position > 0:
+                        self.cash += row["BID"] * self.position
+                        trades.append(("Close Long", self.position, self.entry_price, row["BID"]))
+                        self.position = 0
+                    
+                    # Open short position
+                    if position_size > 0:
+                        self.cash += row["BID"] * position_size
+                        self.position = -position_size
+                        self.entry_price = row["BID"]
+                        trades.append(("Sell", -position_size, row["BID"], None))
+                        print(f"Opening short position: {position_size} shares at ${row['BID']:.2f}")
             
             # Update tracking variables
             current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
             account_balance.append(current_balance)
             positions.append(self.position)
             last_signal = signal
-
+            
+            # Print trade information when signal changes
+            if signal != 0 and signal != last_signal:
+                print(f"\nSignal change at index {i}:")
+                print(f"Signal: {signal}")
+                print(f"Mid Price: ${mid_price:.2f}")
+                print(f"Current Portfolio: ${current_portfolio:,.2f}")
+                print(f"Bid Pressure: {row.get('Bid_Pressure', 'N/A')}")
+                print(f"VWAP: {row.get('VWAP', 'N/A')}")
+        
         # Calculate performance metrics
         df = df.with_columns(
             pl.Series("Account_Balance", account_balance, dtype=pl.Float64),
@@ -622,7 +623,7 @@ class StrategyPortfolio:
         
         # Run backtest for each strategy
         for name, strategy in self.strategies.items():
-            strategy_data = data.copy()
+            strategy_data = data.clone()
             results[name] = strategy.backtest(strategy_data)
             
         # Combine results
@@ -652,12 +653,13 @@ class StrategyPortfolio:
         sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
         
         # Calculate drawdown
-        peak = portfolio_data["Portfolio_Value"].cummax()
+        peak = portfolio_data["Portfolio_Value"].cum_max()
         drawdown = (portfolio_data["Portfolio_Value"] - peak) / peak
         max_drawdown = drawdown.min() * 100
         
         # Calculate Sortino ratio
-        downside_returns = returns[returns < 0]
+        downside_returns = returns.filter(returns < 0)
+        downside_returns = downside_returns.fill_null(0)  # Handle NaNs
         sortino_ratio = (returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
         
         return {
@@ -700,17 +702,16 @@ class MeanReversionStrategy:
         max_position (int): Maximum position size
         stop_loss_pct (float): Stop loss percentage
         profit_target_pct (float): Profit target percentage
-        initial_cash (float): Initial cash balance
         risk_per_trade (float): Percentage of portfolio to risk per trade
         min_profit_threshold (float): Minimum expected profit
         start_time (tuple): Earliest time for generating signals
         end_time (tuple): Latest time for generating signals
     """
     
-    def __init__(self, vwap_window: int = 100, deviation_threshold: float = 0.002,
-                 volatility_window: int = 20, volume_window: int = 50,
+    def __init__(self, vwap_window: int = 20, deviation_threshold: float = 0.0001,
+                 volatility_window: int = 20, volume_window: int = 20,
                  max_position: int = 100, stop_loss_pct: float = 0.3,
-                 profit_target_pct: float = 0.6, initial_cash: float = 100_000,
+                 profit_target_pct: float = 0.6, 
                  risk_per_trade: float = 0.02, min_profit_threshold: float = 0.001,
                  start_time: tuple = (9, 30, 865), end_time: tuple = (16, 28, 954)):
         """Initialize the mean reversion strategy."""
@@ -723,13 +724,14 @@ class MeanReversionStrategy:
         self.profit_target_pct = profit_target_pct
         self.risk_per_trade = risk_per_trade
         self.min_profit_threshold = min_profit_threshold
-        self.cash = initial_cash
         self.position = 0
         self.entry_price = 0
         self.trades = []
         self.start_time = start_time
         self.end_time = end_time
-        
+        self.position_hold_time = 0
+        self.max_hold_time = 100
+
     def calculate_vwap(self, df: pl.DataFrame) -> pl.DataFrame:
         """Calculate VWAP and price deviation metrics."""
         df = df.with_columns(
@@ -777,11 +779,11 @@ class MeanReversionStrategy:
             pl.col("Price_Deviation").rolling_mean(window_size=self.volatility_window).alias("Deviation_MA")
         )
         
-        # Mean reversion score
+        # Mean reversion score with a small constant added to the denominator to avoid division by zero
         df = df.with_columns(
             (
                 (pl.col("Price_Deviation") - pl.col("Deviation_MA")) /
-                pl.col("Volatility")
+                (pl.col("Volatility") + 1e-6)
             ).alias("Mean_Reversion_Score")
         )
         
@@ -790,30 +792,54 @@ class MeanReversionStrategy:
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
         """Generate trading signals based on mean reversion indicators."""
         df = self.calculate_vwap(df)
+        print("VWAP non-nulls:", df["VWAP"].drop_nulls().len())
+        print("Price_Deviation non-nulls:", df["Price_Deviation"].drop_nulls().len())
         df = self.calculate_volatility(df)
+        print("Volatility non-nulls:", df["Volatility"].drop_nulls().len())
+        print("Volume_Ratio non-nulls:", df["Volume_Ratio"].drop_nulls().len())
         df = self.calculate_mean_reversion_score(df)
+        print("Mean_Reversion_Score non-nulls:", df["Mean_Reversion_Score"].drop_nulls().len())
         
-        # Generate signals with multiple confirmations
+        # Debug prints for min/max/range of key metrics
+        print("\nKey Metrics Range:")
+        print("Price_Deviation min:", df["Price_Deviation"].min())
+        print("Price_Deviation max:", df["Price_Deviation"].max())
+        print("Mean_Reversion_Score min:", df["Mean_Reversion_Score"].min())
+        print("Mean_Reversion_Score max:", df["Mean_Reversion_Score"].max())
+        print("Volume_Ratio min:", df["Volume_Ratio"].min())
+        print("Volume_Ratio max:", df["Volume_Ratio"].max())
+        
+        # Debug prints
+        print("\nMean Reversion Strategy Debug:")
+        print(f"Input DataFrame shape: {df.shape}")
+        print(f"Input DataFrame columns: {df.columns}")
+        print("\nSample of calculated metrics:")
+        print(df.select(["MID_PRICE", "VWAP", "Price_Deviation", "Mean_Reversion_Score", "Volume_Ratio", "Volatility"]).head())
+        
+        # Generate signals with tightened conditions
         df = df.with_columns(
             pl.when(
-                # Long signal conditions
-                (pl.col("Price_Deviation") < -self.deviation_threshold) &  # Price below VWAP
-                (pl.col("Mean_Reversion_Score") < -1.5) &  # Strong mean reversion signal
-                (pl.col("Volume_Ratio") > 1.2) &  # Above average volume
-                (pl.col("Volatility") < pl.col("Volatility").rolling_mean(window_size=100))  # Low volatility
+                # Long signal conditions (tightened)
+                (pl.col("Mean_Reversion_Score") < -0.5) &  # Tightened mean reversion signal
+                (pl.col("Volume_Ratio") > 1.0) &  # Relaxed volume condition
+                (pl.col("Volatility") > 0.0001)  # Minimum volatility threshold
             )
             .then(1)
             .when(
-                # Short signal conditions
-                (pl.col("Price_Deviation") > self.deviation_threshold) &  # Price above VWAP
-                (pl.col("Mean_Reversion_Score") > 1.5) &  # Strong mean reversion signal
-                (pl.col("Volume_Ratio") > 1.2) &  # Above average volume
-                (pl.col("Volatility") < pl.col("Volatility").rolling_mean(window_size=100))  # Low volatility
+                # Short signal conditions (tightened)
+                (pl.col("Mean_Reversion_Score") > 0.5) &  # Tightened mean reversion signal
+                (pl.col("Volume_Ratio") > 1.0) &  # Relaxed volume condition
+                (pl.col("Volatility") > 0.0001)  # Minimum volatility threshold
             )
             .then(-1)
             .otherwise(0)
             .alias("Signal")
         )
+        
+        # Print signal distribution
+        signal_counts = df.group_by("Signal").count()
+        print("\nSignal Distribution:")
+        print(signal_counts)
         
         # Filter signals by trading hours
         df = df.with_columns(
@@ -845,6 +871,10 @@ class MeanReversionStrategy:
         
     def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
         """Run backtest simulation and return performance metrics."""
+        # Generate signals first if they don't exist
+        if "Signal" not in df.columns:
+            df = self.generate_signals(df)
+        
         account_balance = []
         positions = []
         trades = []
@@ -863,13 +893,26 @@ class MeanReversionStrategy:
                 unrealized_pnl = (mid_price - self.entry_price) * self.position
                 unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
                 
-                if (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
-                   (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
+                # Increment position hold time
+                self.position_hold_time += 1
+                
+                # Check if max hold time is exceeded
+                if self.position_hold_time >= self.max_hold_time:
+                    # Close position due to max hold time
+                    self.cash += mid_price * self.position
+                    trades.append(("Max Hold Time", self.position, self.entry_price, mid_price))
+                    self.position = 0
+                    self.entry_price = 0
+                    self.position_hold_time = 0
+                
+                elif (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
+                     (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
                     # Stop loss hit
                     self.cash += mid_price * self.position
                     trades.append(("Stop Loss", self.position, self.entry_price, mid_price))
                     self.position = 0
                     self.entry_price = 0
+                    self.position_hold_time = 0
                     
                 elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
                      (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
@@ -878,6 +921,7 @@ class MeanReversionStrategy:
                     trades.append(("Take Profit", self.position, self.entry_price, mid_price))
                     self.position = 0
                     self.entry_price = 0
+                    self.position_hold_time = 0
             
             # Process new signals
             if signal != 0 and signal != last_signal:
@@ -889,6 +933,7 @@ class MeanReversionStrategy:
                         self.cash -= row["ASK"] * abs(self.position)
                         trades.append(("Close Short", self.position, self.entry_price, row["ASK"]))
                         self.position = 0
+                        self.position_hold_time = 0
                     
                     # Open long position
                     if position_size > 0 and self.cash >= row["ASK"] * position_size:
@@ -896,6 +941,7 @@ class MeanReversionStrategy:
                         self.position = position_size
                         self.entry_price = row["ASK"]
                         trades.append(("Buy", position_size, row["ASK"], None))
+                        self.position_hold_time = 0
                         
                 elif signal == -1 and self.position >= 0:
                     # Close any existing long position
@@ -903,6 +949,7 @@ class MeanReversionStrategy:
                         self.cash += row["BID"] * self.position
                         trades.append(("Close Long", self.position, self.entry_price, row["BID"]))
                         self.position = 0
+                        self.position_hold_time = 0
                     
                     # Open short position
                     if position_size > 0:
@@ -910,6 +957,7 @@ class MeanReversionStrategy:
                         self.position = -position_size
                         self.entry_price = row["BID"]
                         trades.append(("Sell", -position_size, row["BID"], None))
+                        self.position_hold_time = 0
             
             # Update tracking variables
             current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)

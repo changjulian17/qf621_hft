@@ -49,26 +49,25 @@ def main():
     portfolio = StrategyPortfolio(initial_cash=1_000_000, rebalance_threshold=0.1)
     
     # Create and add OBI-VWAP strategy
-    obi_strategy = OBIVWAPStrategy(
-        vwap_window=500,
-        obi_window=20,
-        price_impact_window=50,
-        momentum_window=100,
-        obi_threshold=0.1,
-        size_threshold=3,
-        vwap_threshold=0.1,
-        volatility_window=50,
-        trend_window=20,
-        max_position=100,
-        stop_loss_pct=0.5,
-        profit_target_pct=1.0,
-        initial_cash=100_000,
-        risk_per_trade=0.20,
-        min_profit_threshold=0.001,
-        start_time=START_TIME,
-        end_time=END_TIME
-    )
-    portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.6)
+    # obi_strategy = OBIVWAPStrategy(
+    #     vwap_window=500,
+    #     obi_window=20,
+    #     price_impact_window=50,
+    #     momentum_window=100,
+    #     obi_threshold=0.1,
+    #     size_threshold=3,
+    #     vwap_threshold=0.1,
+    #     volatility_window=50,
+    #     trend_window=20,
+    #     max_position=100,
+    #     stop_loss_pct=0.5,
+    #     profit_target_pct=1.0,
+    #     risk_per_trade=0.20,
+    #     min_profit_threshold=0.001,
+    #     start_time=START_TIME,
+    #     end_time=END_TIME
+    # )
+    # portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.6)
     
     # Create and add Mean Reversion strategy
     mean_rev_strategy = MeanReversionStrategy(
@@ -79,7 +78,6 @@ def main():
         max_position=100,
         stop_loss_pct=0.3,
         profit_target_pct=0.6,
-        initial_cash=100_000,
         risk_per_trade=0.20,
         min_profit_threshold=0.001,
         start_time=START_TIME,
@@ -111,153 +109,27 @@ def main():
         print(f"Maximum Drawdown: {results['Metrics']['Max_Drawdown']:.2f}%")
         
         # Plot portfolio value
-        plt.figure(figsize=(12, 6))
-        plt.plot(results['Portfolio']['Portfolio_Value'], label='Portfolio Value')
-        plt.title(f'Portfolio Performance - {ticker}')
-        plt.xlabel('Time')
-        plt.ylabel('Portfolio Value ($)')
-        plt.legend()
-        plt.grid(True)
+        # plt.figure(figsize=(12, 6))
+        # plt.plot(results['Portfolio']['Portfolio_Value'], label='Portfolio Value')
+        # plt.title(f'Portfolio Performance - {ticker}')
+        # plt.xlabel('Time')
+        # plt.ylabel('Portfolio Value ($)')
+        # plt.legend()
+        # plt.grid(True)
         
-        # Plot individual strategy performance
-        plt.figure(figsize=(12, 6))
-        for strategy_name in ['OBI-VWAP', 'Mean-Reversion']:
-            plt.plot(results[strategy_name]['Account_Balance'], 
-                    label=f'{strategy_name} Strategy')
-        plt.title(f'Strategy Performance Comparison - {ticker}')
-        plt.xlabel('Time')
-        plt.ylabel('Account Balance ($)')
-        plt.legend()
-        plt.grid(True)
+        # # Plot individual strategy performance
+        # plt.figure(figsize=(12, 6))
+        # for strategy_name in ['OBI-VWAP', 'Mean-Reversion']:
+        #     plt.plot(results[strategy_name]['Account_Balance'], 
+        #             label=f'{strategy_name} Strategy')
+        # plt.title(f'Strategy Performance Comparison - {ticker}')
+        # plt.xlabel('Time')
+        # plt.ylabel('Account Balance ($)')
+        # plt.legend()
+        # plt.grid(True)
     
     # Show all plots
     plt.show()
 
 if __name__ == "__main__":
     main()
-
-    print("Loading data...")
-
-    # Load and filter data for all tickers
-    df = load_and_filter_data(
-        DATA_FILE,
-        ex_filter=EX_FILTER,
-        qu_cond_filter=QU_COND_FILTER
-    )
-
-    # Extract unique stock tickers from the SYM_ROOT column
-    stock_tickers = df["SYM_ROOT"].unique().to_list()
-    print(f"Found stock tickers: {stock_tickers}")
-
-    for ticker in stock_tickers:
-        print(f"Processing {ticker}...")
-
-        # Filter data for the specific ticker
-        ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
-
-        # Apply strategy
-        strategy = OBIVWAPStrategy(
-            vwap_window=VWAP_WINDOW, 
-            obi_threshold=OBI_THRESHOLD, 
-            size_threshold=SIZE_THRESHOLD,
-            vwap_threshold=VWAP_THRESHOLD,
-            start_time=START_TIME, 
-            end_time=END_TIME
-        )
-        # ticker_data = strategy.generate_signals(ticker_data)
-        # backtest_data = strategy.backtest(ticker_data)
-
-        # Plot account balance
-        # plot_account_balance(backtest_data)
-
-        # Evaluate strategy performance
-        # performance_metrics = evaluate_strategy_performance(backtest_data)
-
-    # Parameter optimization
-    # Define parameter grids with more aggressive ranges
-    VWAP_WINDOWS = [100, 200, 500]  # VWAP calculation window - testing faster response
-    OBI_WINDOWS = [10, 20, 30]  # Order book imbalance window
-    MOMENTUM_WINDOWS = [50, 100, 200]  # Momentum calculation window
-    OBI_THRESHOLDS = [0.05, 0.1, 0.15]  # Order book imbalance threshold - wider range
-    STOP_LOSS_PCTS = [0.5, 1.0, 1.5]  # Stop loss percentages - wider for higher risk
-    PROFIT_TARGET_PCTS = [1.0, 2.0, 3.0]  # Profit target percentages - higher targets
-    RISK_PER_TRADES = [0.15, 0.20, 0.25]  # Risk per trade - testing around 20%
-
-    best_result = None
-    best_params = None
-    best_sharpe = float('-inf')
-    best_trades = 0
-
-    # Test combinations of parameters
-    for vwap_window, obi_window, momentum_window, obi_threshold, stop_loss, profit_target, risk_per_trade in itertools.product(
-        VWAP_WINDOWS, OBI_WINDOWS, MOMENTUM_WINDOWS, OBI_THRESHOLDS,
-        STOP_LOSS_PCTS, PROFIT_TARGET_PCTS, RISK_PER_TRADES
-    ):
-        print(f"\nTesting parameters:")
-        print(f"VWAP_WINDOW={vwap_window}, OBI_WINDOW={obi_window}")
-        print(f"MOMENTUM_WINDOW={momentum_window}, OBI_THRESHOLD={obi_threshold}")
-        print(f"STOP_LOSS={stop_loss}%, PROFIT_TARGET={profit_target}%")
-        print(f"RISK_PER_TRADE={risk_per_trade*100}%")
-        
-        all_metrics = []
-        all_sharpe_ratios = []
-        total_trades = 0
-        
-        for ticker in stock_tickers:
-            ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
-            strategy = OBIVWAPStrategy(
-                vwap_window=vwap_window,
-                obi_window=obi_window,
-                momentum_window=momentum_window,
-                obi_threshold=obi_threshold,
-                stop_loss_pct=stop_loss,
-                profit_target_pct=profit_target,
-                risk_per_trade=risk_per_trade,
-                start_time=START_TIME,
-                end_time=END_TIME
-            )
-            ticker_data = strategy.generate_signals(ticker_data)
-            backtest_data = strategy.backtest(ticker_data)
-            
-            # Extract returns and Sharpe ratio from backtest data
-            returns = backtest_data.select(pl.col("Returns"))
-            avg_return = returns.mean().item()
-            std_return = returns.std().item()
-            
-            if std_return > 0:
-                sharpe = (avg_return * 252) / (std_return * np.sqrt(252))
-                all_sharpe_ratios.append(sharpe)
-            
-            all_metrics.append(backtest_data["Account_Balance"][-1] / backtest_data["Account_Balance"][0] - 1)
-            total_trades += len(strategy.trades)
-
-        avg_metric = sum(all_metrics) / len(all_metrics)
-        avg_sharpe = sum(all_sharpe_ratios) / len(all_sharpe_ratios) if all_sharpe_ratios else float('-inf')
-        avg_trades = total_trades / len(stock_tickers)
-        
-        print(f"Average return: {avg_metric:.2%}")
-        print(f"Average Sharpe: {avg_sharpe:.4f}")
-        print(f"Average trades per ticker: {avg_trades:.1f}")
-        
-        # Update best parameters based on Sharpe ratio and minimum trade count
-        if avg_sharpe > best_sharpe and avg_trades >= 10:
-            best_sharpe = avg_sharpe
-            best_result = avg_metric
-            best_trades = avg_trades
-            best_params = (vwap_window, obi_window, momentum_window, obi_threshold,
-                         stop_loss, profit_target, risk_per_trade)
-
-    print("\nBest parameters found:")
-    print(f"VWAP_WINDOW={best_params[0]}")
-    print(f"OBI_WINDOW={best_params[1]}")
-    print(f"MOMENTUM_WINDOW={best_params[2]}")
-    print(f"OBI_THRESHOLD={best_params[3]}")
-    print(f"STOP_LOSS={best_params[4]}%")
-    print(f"PROFIT_TARGET={best_params[5]}%")
-    print(f"RISK_PER_TRADE={best_params[6]*100}%")
-    print(f"Average return: {best_result:.2%}")
-    print(f"Average Sharpe: {best_sharpe:.4f}")
-    print(f"Average trades per ticker: {best_trades:.1f}")
-
-    # Show all plots at the end
-    plt.show()
