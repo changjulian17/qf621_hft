@@ -2,6 +2,8 @@ import wrds
 import polars as pl
 import matplotlib.pyplot as plt
 import time
+import logging
+from typing import Optional
 
 def fetch_taq_data(
     tickers,
@@ -11,9 +13,13 @@ def fetch_taq_data(
     end_date,
     start_time="09:30:00",
     end_time="16:00:00",
-    wrds_username='changjulian17'
+    wrds_username='changjulian17',
+    logger: Optional[logging.Logger] = None
 ):
-    print("Fetching TAQ data from WRDS...")
+    if logger is None:
+        logger = logging.getLogger(__name__)
+        
+    logger.info("Fetching TAQ data from WRDS...")
     db = wrds.Connection(wrds_username=wrds_username) if wrds_username else wrds.Connection()
     tickers_str = ", ".join([f"'{t}'" for t in tickers])
     query = f"""
@@ -57,7 +63,7 @@ def fetch_taq_data(
     start_time_query = time.time()
     data = db.raw_sql(query)
     end_time_query = time.time()
-    print(f"Data fetched successfully. Query time: {end_time_query - start_time_query:.2f} seconds.")
+    logger.info(f"Data fetched successfully. Query time: {end_time_query - start_time_query:.2f} seconds.")
 
     # Convert to Polars DataFrame first
     data = pl.from_pandas(data)
@@ -75,6 +81,13 @@ def fetch_taq_data(
     return data
 
 def main():
+    # Set up logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+    logger.addHandler(handler)
+    
     # Configurable parameters
     tickers = ['FTAI', 'WLFC', 'HEES', 'AL', 'GATX', 'ALTG']
     exchanges = "'Q', 'N'"
@@ -88,10 +101,12 @@ def main():
         quote_conds="'R'",
         start_date=start_date,
         end_date=end_date,
-        wrds_username=wrds_username
+        wrds_username=wrds_username,
+        logger=logger
     )
 
-    print(data.head())
+    logger.info("\nFirst few rows of fetched data:")
+    logger.info(str(data.head()))
 
 if __name__ == "__main__":
     main()
