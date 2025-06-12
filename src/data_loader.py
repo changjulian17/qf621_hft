@@ -25,7 +25,7 @@ def load_and_filter_data(
             condition in the "QU_COND" column will be included. Default is "R".
         sym_root (str, optional): 
             Stock ticker filter. If provided, only rows with the specified 
-            stock ticker in the "SYM_ROOT" column will be included.
+            stock ticker in the "sym_root" column will be included.
 
     Returns:
         pl.DataFrame: 
@@ -47,16 +47,22 @@ def load_and_filter_data(
         >>> print(df)
     """
     # Read the CSV file into a Polars DataFrame
-    df = pl.read_csv(path)
+    df = pl.read_csv(path,
+                    schema_overrides={"NATBBO_IND": pl.Utf8}
+            )
+    
+    # Extract unique stock tickers from the sym_root column
+    stock_tickers = df["sym_root"].unique().to_list()
+    print(f"Found stock tickers: {stock_tickers}")
 
-    # Convert the "TIME_M" column to time format and alias it
+    # Convert the "time_m" column to time format and alias it
     df = df.with_columns(
-        pl.col("TIME_M").str.to_time(format="%H:%M:%S%.f").alias("TIME_M")
+        pl.col("time_m").str.to_time(format="%H:%M:%S%.f").alias("time_m")
     )
 
     # Filter rows to include only those within trading hours (9:30 AM to 4:00 PM)
     df = df.filter(
-        pl.col("TIME_M").is_between(pl.time(9, 30), pl.time(16, 0))
+        pl.col("time_m").is_between(pl.time(9, 30), pl.time(16, 0))
     )
 
     # Apply exchange filter if specified
@@ -69,11 +75,11 @@ def load_and_filter_data(
 
     # Apply stock ticker filter if specified
     if sym_root:
-        df = df.filter(pl.col("SYM_ROOT") == sym_root)
+        df = df.filter(pl.col("sym_root") == sym_root)
 
     # Combine DATE and TIME_M into a single datetime column and sort by it
     df = df.with_columns(
-        (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("TIME_M").cast(pl.Utf8))
+        (pl.col("DATE").cast(pl.Utf8) + " " + pl.col("time_m").cast(pl.Utf8))
         .str.strptime(pl.Datetime("ns"), format="%Y-%m-%d %H:%M:%S%.f")
         .alias("Timestamp")
     ).sort("Timestamp")

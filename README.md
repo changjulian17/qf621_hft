@@ -6,13 +6,29 @@ Initial results are not good:
 
 - try geting aapl or single stock and try for a long period and find out if there is any alpha with a range of OBI and VWAP
 - try another strategy instead of relying on OBI which is very sensitive
+
   - use together with volume and VWAP?
 - try across a larger range of stocks including small cap names
 - analyse tracking multiple levels of bid-offer than the best one given by EX (rolling window of size?)
-
 ways to recover:
-
 - go back to using mid price instead of crossing bid offer, mix trade data to show intermediate prices are trading
+
+managed to get good results:
+- positive return list after testing 29-30 May 2023 for all SPY tickers: positive_return_tickers_v1
+
+next steps:
+- compare performance for different exchanges to quantify difference across exchanges
+   - for exchange: Direct X (Z) and ticker: ZION there is still positive returns
+- compare performance for different calendar months with one week in sample and 1 week out of sample
+- measure trade stats: how many per minute (is this realistic)
+- expand to a sample of russell 2000 tickers
+
+discussion points:
+- is it realistic to be trading against Nasdaq?
+   - can we still get some alpha trading on broker exchanges only?
+- why is there only some tickers that have positive returns? what is the correlation?
+   - market size?
+   - are these tickers not tradable on nano second even if it is reported as nano second?
 
 ## Executive Summary
 

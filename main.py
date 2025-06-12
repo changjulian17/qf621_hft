@@ -1,78 +1,123 @@
-from src.data_loader import load_and_filter_data
-from src.strategy import OBIVWAPStrategy
+from src.wrds_pull import fetch_taq_data
+from src.strategy import OBIVWAPStrategy, StrategyPortfolio, MeanReversionStrategy
 from src.plot import plot_account_balance
 from src.performance import evaluate_strategy_performance
-import matplotlib.pyplot as plt
+from src.logger_config import setup_logger
 import polars as pl
+import random
+import os
+import gc
 import itertools
+# random.seed(42)
 
-# Configuration Parameters
-VWAP_WINDOW = 500  # Rolling window size for VWAP calculation
-OBI_THRESHOLD = 0.1  # Threshold for Order Book Imbalance (OBI) signals
-SIZE_THRESHOLD = 2  # Minimum size threshold for bid and ask sizes
-VWAP_THRESHOLD = 0.1  # VWAP threshold for signal generation
+EX_FILTER = "'Q', 'T', 'N'"
+QU_COND_FILTER = "'R'"
+START_DATE = '2023-08-14'
+END_DATE = '2023-08-18'
+START_TIME = (9, 55)
+END_TIME = (15, 36)
+VWAP_WINDOW = 500
+OBI_THRESHOLD = 0
+SIZE_THRESHOLD = 0
+VWAP_THRESHOLD = 0
 
-EX_FILTER = "Q"  # Exchange filter
-QU_COND_FILTER = "R"  # Quote condition filter
-START_TIME = (9, 55)  # Start time for generating signals (HH, MM)
-END_TIME = (15, 36)  # End time for generating signals (HH, MM)
-DATA_FILE = "./data/stock_sample6.csv"
-
-"""
-Main script for running the high-frequency trading analysis.
-
-This script orchestrates the loading of data, application of trading strategies,
-performance evaluation, and visualization of results.
-
-Modules:
-    - data_loader: Handles data loading and preprocessing.
-    - strategy: Implements trading strategies.
-    - plot: Provides visualization utilities.
-    - performance: Evaluates strategy performance.
-
-Usage:
-    Run the script directly to process stock data, apply strategies, and visualize results.
-"""
+def chunked(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 if __name__ == "__main__":
-    print("Loading data...")
+    # Set up main logger
+    logger = setup_logger()
+    logger.info("Starting HFT Strategy Analysis")
+    logger.info(f"Configuration: VWAP_WINDOW={VWAP_WINDOW}, OBI_THRESHOLD={OBI_THRESHOLD}, "
+                f"SIZE_THRESHOLD={SIZE_THRESHOLD}, VWAP_THRESHOLD={VWAP_THRESHOLD}")
 
-    # Load and filter data for all tickers
-    df = load_and_filter_data(
-        DATA_FILE,
-        ex_filter=EX_FILTER,
-        qu_cond_filter=QU_COND_FILTER
-    )
+    with open("data/filtered_tickers.txt") as f:
+        all_filtered = [line.strip() for line in f if line.strip()]
 
-    # Extract unique stock tickers from the SYM_ROOT column
-    stock_tickers = df["SYM_ROOT"].unique().to_list()
-    print(f"Found stock tickers: {stock_tickers}")
+    positive_return_tickers = []
 
-    for ticker in stock_tickers:
-        print(f"Processing {ticker}...")
+    for batch_num, batch in enumerate(chunked(all_filtered[469:], 2), 1): # TODO remove splice
+        logger.info(f"\nProcessing batch {batch_num}: {batch}")
+        df = fetch_taq_data(
+            tickers=batch,
+            exchanges=EX_FILTER,
+            quote_conds=QU_COND_FILTER,
+            start_date=START_DATE,
+            end_date=END_DATE,
+            wrds_username='shobhit999'
+        )
 
-        # Filter data for the specific ticker
-        ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
+        stock_tickers = df["sym_root"].unique().to_list()
+        logger.info(f"Tickers: {stock_tickers}")
 
-        # Apply strategy
-        strategy = OBIVWAPStrategy(
-            vwap_window=VWAP_WINDOW, 
-            obi_threshold=OBI_THRESHOLD, 
-            size_threshold=SIZE_THRESHOLD,
-            vwap_threshold=VWAP_THRESHOLD,
-            start_time=START_TIME, 
+        portfolio = StrategyPortfolio(initial_cash=1_000_000, rebalance_threshold=0.1)
+        obi_strategy = OBIVWAPStrategy(
+            vwap_window=500,
+            obi_window=20,
+            price_impact_window=50,
+            momentum_window=100,
+            obi_threshold=0.1,
+            size_threshold=3,
+            vwap_threshold=0.1,
+            volatility_window=50,
+            trend_window=20,
+            max_position=100,
+            stop_loss_pct=0.5,
+            profit_target_pct=1.0,
+            risk_per_trade=0.20,
+            min_profit_threshold=0.001,
+            start_time=START_TIME,
             end_time=END_TIME
         )
-        # ticker_data = strategy.generate_signals(ticker_data)
-        # backtest_data = strategy.backtest(ticker_data)
+        portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.6)
+        
+        mean_rev_strategy = MeanReversionStrategy(
+            vwap_window=100,
+            deviation_threshold=0.002,
+            volatility_window=20,
+            volume_window=50,
+            max_position=100,
+            stop_loss_pct=0.3,
+            profit_target_pct=0.6,
+            risk_per_trade=0.20,
+            min_profit_threshold=0.001,
+            start_time=START_TIME,
+            end_time=END_TIME
+        )
+        portfolio.add_strategy("Mean-Reversion", mean_rev_strategy, weight=0.4)
+        all_results = {}
 
-        # Plot account balance
-        # plot_account_balance(backtest_data)
+        for ticker in stock_tickers:
+            logger.info(f"Processing {ticker}...")
+            ticker_data = df.filter(pl.col("sym_root") == ticker)
 
-        # Evaluate strategy performance
-        # performance_metrics = evaluate_strategy_performance(backtest_data)
+            results = portfolio.run_backtest(ticker_data)
+            all_results[ticker] = results
+            
+            # Log portfolio metrics
+            logger.info(f"\nPortfolio Performance for {ticker}:")
+            logger.info(f"Total Return: {results['Metrics']['Total_Return']:.2f}%")
+            logger.info(f"Sharpe Ratio: {results['Metrics']['Sharpe_Ratio']:.4f}")
+            logger.info(f"Sortino Ratio: {results['Metrics']['Sortino_Ratio']:.4f}")
+            logger.info(f"Maximum Drawdown: {results['Metrics']['Max_Drawdown']:.2f}%")
+            # ticker_data = strategy.generate_signals(ticker_data)
+            # backtest_data = strategy.backtest(ticker_data)
+            # # plot_account_balance(backtest_data)
+            # metrics = evaluate_strategy_performance(backtest_data)
+            if results['Metrics']['Total_Return'] > 0:
+                positive_return_tickers.append(ticker)
+        del df
+        gc.collect()
+
+        with open("data/positive_return_tickers.txt", "w") as f:
+            for t in positive_return_tickers:
+                f.write(f"{t}\n")
+
+    logger.info("\nTickers with Total_Returns > 0 saved to data/positive_return_tickers.txt")
 
     # Parameter optimization
+    logger.info("Starting parameter optimization...")
     # Define parameter grids
     VWAP_WINDOWS = [500]
     OBI_THRESHOLDS = [0]
@@ -82,32 +127,3 @@ if __name__ == "__main__":
     best_result = None
     best_params = None
 
-    for vwap_window, obi_threshold, size_threshold, vwap_threshold in itertools.product(
-        VWAP_WINDOWS, OBI_THRESHOLDS, SIZE_THRESHOLDS, VWAP_THRESHOLDS
-    ):
-        print(f"Testing VWAP_WINDOW={vwap_window}, OBI_THRESHOLD={obi_threshold}, SIZE_THRESHOLD={size_threshold}, VWAP_THRESHOLD={vwap_threshold}")
-        all_metrics = []
-        for ticker in stock_tickers:
-            ticker_data = df.filter(pl.col("SYM_ROOT") == ticker)
-            strategy = OBIVWAPStrategy(
-                vwap_window=vwap_window, 
-                obi_threshold=obi_threshold, 
-                size_threshold=size_threshold,
-                vwap_threshold=vwap_threshold,
-                start_time=START_TIME, 
-                end_time=END_TIME
-            )
-            ticker_data = strategy.generate_signals(ticker_data)
-            backtest_data = strategy.backtest(ticker_data)
-            metrics = evaluate_strategy_performance(backtest_data)
-            all_metrics.append(metrics["Total_Returns"])  # or use another metric
-
-        avg_metric = sum(all_metrics) / len(all_metrics)
-        if (best_result is None) or (avg_metric > best_result):
-            best_result = avg_metric
-            best_params = (vwap_window, obi_threshold, size_threshold, vwap_threshold)
-
-    print(f"Best params: VWAP_WINDOW={best_params[0]}, OBI_THRESHOLD={best_params[1]}, SIZE_THRESHOLD={best_params[2]}, VWAP_THRESHOLD={best_params[3]} with avg return {best_result:.2f}%")
-
-    # Show all plots at the end
-    plt.show()
