@@ -1,22 +1,25 @@
 import polars as pl
 import numpy as np
+from typing import Dict, Optional
+import logging
 import re
 
-def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
+def evaluate_strategy_performance(backtest_data: pl.DataFrame, logger: Optional[logging.Logger] = None) -> Dict:
     """
-    Evaluates the performance of a trading strategy, including key metrics 
-    and daily Sharpe ratios.
+    Evaluate the performance of a trading strategy based on backtest data.
 
     Args:
-        backtest_data (pl.DataFrame): 
-            A Polars DataFrame containing columns "Account_Balance", "DATE", 
-            and "time_m".
+        backtest_data (pl.DataFrame): DataFrame containing backtest results
+        logger (logging.Logger, optional): Logger instance for output
 
     Returns:
         dict: 
             A dictionary containing performance metrics such as total returns, 
             max drawdown, daily Sharpe ratios, average bid-ask spread, and average Sharpe.
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
     # Ensure "Account_Balance" exists in the DataFrame
     if "Account_Balance" not in backtest_data.columns:
         raise ValueError("The DataFrame must contain an 'Account_Balance' column.")
@@ -44,11 +47,26 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     daily_sharpe = (
         df.group_by_dynamic("Timestamp", every="1d")
         .agg(
-            (pl.col("Log_Returns").mean() / pl.col("Log_Returns").std() * np.sqrt(390 ** 0.5)) # 390 trading minutes in a day
+            (pl.col("Log_Returns").mean() / pl.col("Log_Returns").std() * np.sqrt(390 ** 0.5))
             .alias("Daily_Sharpe_Ratio")
         )
     )
 
+    # Calculate total returns and max drawdown
+    total_returns = ((df["Account_Balance"].tail(1).item() / df["Account_Balance"].head(1).item()) - 1) * 100
+    
+    peak = df["Account_Balance"].cum_max()
+    drawdown = ((df["Account_Balance"] - peak) / peak) * 100
+    max_drawdown = drawdown.min()
+
+    # Log performance statistics
+    logger.info("\nPERFORMANCE STATISTICS:")
+    logger.info(f"Total returns: {total_returns:.2f}%")
+    logger.info(f"Max drawdown: {max_drawdown:.2f}%")
+
+    # Log daily Sharpe ratios
+    logger.info("\nDAILY SHARPE RATIOS:")
+    logger.info(str(daily_sharpe))
     # Calculate average bid-ask spread as a liquidity metric
     if "bid" in backtest_data.columns and "ask" in backtest_data.columns:
         avg_bid_ask_spread = (backtest_data["ask"] - backtest_data["bid"]).mean()
