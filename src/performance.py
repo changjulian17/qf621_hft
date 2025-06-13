@@ -1,5 +1,6 @@
 import polars as pl
 import numpy as np
+import re
 
 def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     """
@@ -14,7 +15,7 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     Returns:
         dict: 
             A dictionary containing performance metrics such as total returns, 
-            max drawdown, daily Sharpe ratios, and average bid-ask spread.
+            max drawdown, daily Sharpe ratios, average bid-ask spread, and average Sharpe.
     """
     # Ensure "Account_Balance" exists in the DataFrame
     if "Account_Balance" not in backtest_data.columns:
@@ -54,6 +55,30 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     else:
         avg_bid_ask_spread = None
 
+    # Helper to extract average Sharpe
+    def extract_avg_sharpe(metrics):
+        if "Sharpe" in metrics:
+            return metrics["Sharpe"]
+        dsr = metrics.get("Daily_Sharpe_Ratios")
+        if dsr is None:
+            return None
+        try:
+            if hasattr(dsr, "to_pandas"):
+                df = dsr.to_pandas()
+                return df["Daily_Sharpe_Ratio"].mean()
+            elif isinstance(dsr, str):
+                vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", dsr)]
+                if vals:
+                    return sum(vals) / len(vals)
+            elif hasattr(dsr, "__iter__"):
+                vals = list(dsr)
+                if vals and hasattr(vals[0], "get"):
+                    vals = [v.get("Daily_Sharpe_Ratio", 0) for v in vals]
+                return sum(vals) / len(vals)
+        except Exception:
+            return None
+        return None
+
     # Print performance metrics
     ticker = backtest_data["sym_root"].unique()[0]
     print(f"\nPERFORMANCE {ticker} STATISTICS:")
@@ -68,10 +93,13 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame) -> dict:
     print("\nDAILY SHARPE RATIOS:")
     print(daily_sharpe)
 
+    avg_sharpe = extract_avg_sharpe({"Daily_Sharpe_Ratios": daily_sharpe})
+
     # Return metrics as a dictionary
     return {
         "Total_Returns": total_returns,
         "Max_Drawdown": max_drawdown,
         "Daily_Sharpe_Ratios": daily_sharpe,
         "Average_Bid_Ask_Spread": avg_bid_ask_spread,
+        "Average_Sharpe": avg_sharpe,
     }
