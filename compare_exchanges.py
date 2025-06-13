@@ -8,8 +8,8 @@ import csv
 import os
 import logging
 
-# EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'"]
-EXCHANGES = ["'Z'", "'N'"]
+EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'", "'T'"]
+# EXCHANGES = ["'Z'", "'Q'"]
 QU_COND_FILTER = "'R'"
 START_DATE = '2023-05-10'
 END_DATE = '2023-05-10'
@@ -25,8 +25,8 @@ def main():
     with open("data/positive_return_tickers_v1.txt") as f:
         all_filtered = [line.strip() for line in f if line.strip()]
 
-    batch_size = 1
-    num_batches = 1
+    batch_size = 8
+    num_batches = 8
 
     for batch_num, batch_start in enumerate(range(0, batch_size * num_batches, batch_size), 1):
         batch = all_filtered[batch_start:batch_start + batch_size]

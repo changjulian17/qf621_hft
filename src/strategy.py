@@ -386,7 +386,7 @@ class OBIVWAPStrategy:
             current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
             
             # Process existing position
-            if self.position != 0:
+            if self.position != 0 and self.entry_price not in (None, 0):
                 unrealized_pnl = (mid_price - self.entry_price) * self.position
                 unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
                 
@@ -439,6 +439,17 @@ class OBIVWAPStrategy:
                         self.entry_price = row["bid"]
                         trades.append(("Sell", -position_size, row["bid"], None))
                         self.logger.info(f"Opening short position: {position_size} shares at ${row['bid']:.2f}")
+            # Close all positions if signal is 0 and you have an open position
+            elif signal == 0 and self.position != 0:
+                if self.position > 0:
+                    self.cash += row["bid"] * self.position
+                    trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
+                elif self.position < 0:
+                    self.cash -= row["ask"] * abs(self.position)
+                    trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
+                self.position = 0
+                self.entry_price = 0
+                self.position_hold_time = 0
             
             # Update tracking variables
             current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
@@ -927,6 +938,17 @@ class MeanReversionStrategy:
                         self.entry_price = row["bid"]
                         trades.append(("Sell", -position_size, row["bid"], None))
                         self.position_hold_time = 0
+            # Close all positions if signal is 0 and you have an open position
+            elif signal == 0 and self.position != 0:
+                if self.position > 0:
+                    self.cash += row["bid"] * self.position
+                    trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
+                elif self.position < 0:
+                    self.cash -= row["ask"] * abs(self.position)
+                    trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
+                self.position = 0
+                self.entry_price = 0
+                self.position_hold_time = 0
             
             # Update tracking variables
             current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)

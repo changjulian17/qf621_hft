@@ -31,7 +31,7 @@ def main():
 
     batch_size = 2  # Number of tickers per batch
     year = 2023
-    n_days = 1  # Number of random trading days to pick
+    n_days = 12  # Number of random trading days to pick
 
     trading_days = get_random_trading_days(year, n_days)
     print(f"Random trading days in H1 2023: {trading_days}")
