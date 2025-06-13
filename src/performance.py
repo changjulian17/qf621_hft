@@ -113,11 +113,21 @@ def evaluate_strategy_performance(backtest_data: pl.DataFrame, logger: Optional[
 
     avg_sharpe = extract_avg_sharpe({"Daily_Sharpe_Ratios": daily_sharpe})
 
+    # Average bid-ask spread
+    avg_spread = (backtest_data.select((pl.col("ask") - pl.col("bid"))
+                                       .alias("spread"))["spread"]).mean()
+
+    # Cumulative trades (count nonzero changes in Position)
+    if "Position" in backtest_data.columns:
+        trades = (backtest_data["Position"].diff().abs() > 0).sum()
+    else:
+        trades = None
+
     # Return metrics as a dictionary
     return {
         "Total_Returns": total_returns,
         "Max_Drawdown": max_drawdown,
-        "Daily_Sharpe_Ratios": daily_sharpe,
-        "Average_Bid_Ask_Spread": avg_bid_ask_spread,
         "Average_Sharpe": avg_sharpe,
+        "Average_Bid_Ask_Spread": avg_spread,
+        "Cumulative_Trades": trades,
     }

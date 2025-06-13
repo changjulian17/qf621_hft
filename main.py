@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     positive_return_tickers = []
 
-    for batch_num, batch in enumerate(chunked(all_filtered[469:], 2), 1): # TODO remove splice
+    for batch_num, batch in enumerate(chunked(all_filtered[:6], 2), 1): # TODO remove splice
         logger.info(f"\nProcessing batch {batch_num}: {batch}")
         df = fetch_taq_data(
             tickers=batch,
@@ -45,7 +45,7 @@ if __name__ == "__main__":
             quote_conds=QU_COND_FILTER,
             start_date=START_DATE,
             end_date=END_DATE,
-            wrds_username='shobhit999'
+            wrds_username='changjulian17'
         )
 
         stock_tickers = df["sym_root"].unique().to_list()

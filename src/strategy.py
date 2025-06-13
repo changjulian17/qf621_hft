@@ -1,6 +1,7 @@
 import polars as pl
 import logging
 import numpy as np
+import math
 from typing import Optional
 
 
@@ -359,10 +360,10 @@ class OBIVWAPStrategy:
         # Very aggressive position sizing
         risk_amount = portfolio_value * self.risk_per_trade
         risk_per_share = price * volatility
-        
-        if risk_per_share == 0:
+
+        if risk_per_share == 0 or math.isnan(risk_per_share):
             return 0
-            
+
         position_size = int(risk_amount / risk_per_share)
         return min(position_size, self.max_position)
 
@@ -395,7 +396,7 @@ class OBIVWAPStrategy:
             # Process new signals
             if signal != 0 and signal != last_signal:
                 position_size = min(
-                    int(current_portfolio * self.risk_per_trade / mid_price),
+                    int(current_portfolio * self.risk_per_trade / (mid_price + 1e-8)),
                     self.max_position
                 )
                 
@@ -577,18 +578,31 @@ class StrategyPortfolio:
         for name, strategy in self.strategies.items():
             strategy_data = data.clone()
             results[name] = strategy.backtest(strategy_data)
-            
-        # Combine results
-        for i in range(len(data)):
-            portfolio_value = 0
-            for name, result in results.items():
-                portfolio_value += result["Account_Balance"][i]
-            portfolio_values.append(portfolio_value)
-            
-        # Add portfolio value to results
+
+        # Efficiently aggregate Account_Balance and Position columns across all strategies
+        account_balance_series_list = [
+            result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
+        ]
+        position_series_list = [
+            result["Position"] for name, result in results.items() if "Position" in result.columns
+        ]
+
+        if account_balance_series_list:
+            portfolio_account_balance = sum(account_balance_series_list)
+        else:
+            portfolio_account_balance = pl.Series([0.0] * len(data), dtype=pl.Float64)
+
+        if position_series_list:
+            portfolio_positions = sum(position_series_list)
+        else:
+            portfolio_positions = pl.Series([0] * len(data), dtype=pl.Int64)
+
+        # Add portfolio value and position to results
         results["Portfolio"] = data.with_columns(
-            pl.Series("Portfolio_Value", portfolio_values)
-        )
+            pl.Series("Portfolio_Value", portfolio_account_balance),
+            pl.Series("Account_Balance", portfolio_account_balance),
+            pl.Series("Position", portfolio_positions)
+)
         
         # Calculate portfolio metrics
         portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
@@ -811,16 +825,16 @@ class MeanReversionStrategy:
         
     def calculate_position_size(self, price: float, volatility: float, portfolio_value: float) -> int:
         """Calculate optimal position size based on risk and volatility."""
-        if volatility == 0:
+        if volatility == 0 or math.isnan(volatility):
             return 0
-            
+
         # Risk-based position sizing
         risk_amount = portfolio_value * self.risk_per_trade
         risk_per_share = price * volatility * 2
-        
-        if risk_per_share == 0:
+
+        if risk_per_share == 0 or math.isnan(risk_per_share):
             return 0
-            
+
         position_size = int(risk_amount / risk_per_share)
         return min(position_size, self.max_position)
         

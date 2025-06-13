@@ -29,9 +29,9 @@ def main():
     with open("data/positive_return_tickers_v1.txt") as f:
         all_filtered = [line.strip() for line in f if line.strip()]
 
-    batch_size = 8  # Number of tickers per batch
+    batch_size = 2  # Number of tickers per batch
     year = 2023
-    n_days = 12  # Number of random trading days to pick
+    n_days = 1  # Number of random trading days to pick
 
     trading_days = get_random_trading_days(year, n_days)
     print(f"Random trading days in H1 2023: {trading_days}")
