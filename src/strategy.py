@@ -913,6 +913,7 @@ class MeanReversionStrategy:
                         self.cash -= row["ask"] * abs(self.position)
                         trades.append(("Close Short", self.position, self.entry_price, row["ask"]))
                         self.position = 0
+                        self.entry_price = 0
                         self.position_hold_time = 0
                     
                     # Open long position
@@ -929,6 +930,7 @@ class MeanReversionStrategy:
                         self.cash += row["bid"] * self.position
                         trades.append(("Close Long", self.position, self.entry_price, row["bid"]))
                         self.position = 0
+                        self.entry_price = 0
                         self.position_hold_time = 0
                     
                     # Open short position

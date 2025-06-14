@@ -89,6 +89,8 @@ def main():
                 portfolio_metrics = evaluate_strategy_performance(portfolio_df)
 
                 batch_results.append({
+                    "start_date": START_DATE,
+                    "end_date": END_DATE,
                     "ticker": ticker,
                     "exchange": ex.replace("'", ""),
                     "OBIVWAP_Returns": obi_metrics.get("Total_Returns"),
@@ -112,7 +114,7 @@ def main():
         # Write results after each batch run, append header only if new file
         if batch_results:
             fieldnames = [
-                "ticker", "exchange",
+                "start_date", "end_date", "ticker", "exchange",
                 "OBIVWAP_Returns", "MeanRev_Returns", "Portfolio_Returns",
                 "OBIVWAP_Sharpe", "MeanRev_Sharpe", "Portfolio_Sharpe",
                 "OBIVWAP_Avg_Spread", "MeanRev_Avg_Spread", "Portfolio_Avg_Spread",

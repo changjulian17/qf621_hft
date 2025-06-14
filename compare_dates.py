@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import random
 import pandas_market_calendars as mcal
 
-EXCHANGES = ["'Z'"] 
+EXCHANGES = ["'Z'","'N'"] 
 # EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'"]
 QU_COND_FILTER = "'R'"
 VWAP_WINDOW = 500
@@ -29,7 +29,7 @@ def main():
     with open("data/positive_return_tickers_v1.txt") as f:
         all_filtered = [line.strip() for line in f if line.strip()]
 
-    batch_size = 2  # Number of tickers per batch
+    batch_size = 8  # Number of tickers per batch
     year = 2023
     n_days = 12  # Number of random trading days to pick
 
@@ -94,7 +94,8 @@ def main():
                 portfolio_metrics = evaluate_strategy_performance(portfolio_df)
 
                 batch_results.append({
-                    "date": day,
+                    "start_date": day,
+                    "end_date": day,
                     "ticker": ticker,
                     "exchange": ex.replace("'", ""),
                     "OBIVWAP_Returns": obi_metrics.get("Total_Returns"),
@@ -118,7 +119,7 @@ def main():
         # Write/appends results for each day
         if batch_results:
             fieldnames = [
-                "date", "ticker", "exchange",
+                "start_date", "end_date", "ticker", "exchange",
                 "OBIVWAP_Returns", "MeanRev_Returns", "Portfolio_Returns",
                 "OBIVWAP_Sharpe", "MeanRev_Sharpe", "Portfolio_Sharpe",
                 "OBIVWAP_Avg_Spread", "MeanRev_Avg_Spread", "Portfolio_Avg_Spread",
