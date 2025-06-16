@@ -1,4 +1,4 @@
-from src.wrds_pull import fetch_taq_data
+from src.wrds_pull import fetch_taq_data, fetch_avg_daily_volume
 from src.strategy import OBIVWAPStrategy, MeanReversionStrategy, StrategyPortfolio
 from src.performance import evaluate_strategy_performance
 import polars as pl
@@ -93,6 +93,23 @@ def main():
                 meanrev_metrics = evaluate_strategy_performance(meanrev_df)
                 portfolio_metrics = evaluate_strategy_performance(portfolio_df)
 
+                # Query average daily volume for this ticker/exchange/day
+                avg_vol_df = fetch_avg_daily_volume(
+                    tickers=[ticker],
+                    exchanges=ex,
+                    start_date=day,
+                    end_date=day,
+                    start_time="09:30:00",
+                    end_time="16:00:00",
+                    wrds_username='changjulian17'
+                )
+                # Get avg_daily_volume for this ticker/exchange
+                avg_vol_map = {
+                    (row['sym_root'], row['ex']): row['avg_daily_volume']
+                    for _, row in avg_vol_df.iterrows()
+                }
+                avg_daily_volume = avg_vol_map.get((ticker, ex.replace("'", "")), None)
+
                 batch_results.append({
                     "start_date": day,
                     "end_date": day,
@@ -110,6 +127,7 @@ def main():
                     "OBIVWAP_Trades": obi_metrics.get("Cumulative_Trades"),
                     "MeanRev_Trades": meanrev_metrics.get("Cumulative_Trades"),
                     "Portfolio_Trades": portfolio_metrics.get("Cumulative_Trades"),
+                    "avg_daily_volume": avg_daily_volume
                 })
                 del ticker_data
                 gc.collect()
@@ -123,7 +141,8 @@ def main():
                 "OBIVWAP_Returns", "MeanRev_Returns", "Portfolio_Returns",
                 "OBIVWAP_Sharpe", "MeanRev_Sharpe", "Portfolio_Sharpe",
                 "OBIVWAP_Avg_Spread", "MeanRev_Avg_Spread", "Portfolio_Avg_Spread",
-                "OBIVWAP_Trades", "MeanRev_Trades", "Portfolio_Trades"
+                "OBIVWAP_Trades", "MeanRev_Trades", "Portfolio_Trades",
+                "avg_daily_volume"
             ]
             file_path = "data/dates_comparison_metrics.csv"
             write_header = not os.path.exists(file_path) or os.path.getsize(file_path) == 0
