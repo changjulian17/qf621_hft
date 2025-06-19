@@ -869,7 +869,7 @@ class MeanReversionStrategy:
             volatility = row.get("Volatility", 0.01)
             
             # Process existing position
-            if self.position != 0:
+            if self.position != 0 and self.entry_price not in (None, 0):
                 unrealized_pnl = (mid_price - self.entry_price) * self.position
                 unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
                 
