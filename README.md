@@ -174,3 +174,6 @@ pip install -r requirements.txt
 MIT License
 
 ---
+
+1. Why we chose the stocks taht we did. We tested all 500 on 2 days of data. Then we found 46 and then do insample. 
+2. different prices between exchanges, timing of profitabliity, market depth and availablility. 
