@@ -19,7 +19,7 @@ VWAP_THRESHOLD = 0
 
 def get_random_trading_days(year, n_days, seed=42):
     nyse = mcal.get_calendar('XNYS')
-    schedule = nyse.schedule(start_date=f'{year}-01-01', end_date=f'{year}-06-30')
+    schedule = nyse.schedule(start_date=f'{year}-07-01', end_date=f'{year}-12-31')
     trading_days = schedule.index.strftime('%Y-%m-%d').tolist()
     # random.seed(seed)
     return random.sample(trading_days, n_days)

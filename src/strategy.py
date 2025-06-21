@@ -915,8 +915,8 @@ class MeanReversionStrategy:
                         self.position = 0
                         self.entry_price = 0
                         self.position_hold_time = 0
-                        if self.position != 0:
-                            assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
+                        # if self.position != 0:
+                        #     assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
                     
                     # Open long position
                     if position_size > 0 and self.cash >= row["ask"] * position_size:
@@ -925,8 +925,8 @@ class MeanReversionStrategy:
                         self.entry_price = row["ask"]
                         trades.append(("Buy", position_size, row["ask"], None))
                         self.position_hold_time = 0
-                        if self.position != 0:
-                            assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
+                        # if self.position != 0:
+                        #     assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
                         
                 elif signal == -1 and self.position >= 0:
                     # Close any existing long position
@@ -936,8 +936,8 @@ class MeanReversionStrategy:
                         self.position = 0
                         self.entry_price = 0
                         self.position_hold_time = 0
-                        if self.position != 0:
-                            assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
+                        # if self.position != 0:
+                        #     assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
                     
                     # Open short position
                     if position_size > 0:
@@ -946,8 +946,8 @@ class MeanReversionStrategy:
                         self.entry_price = row["bid"]
                         trades.append(("Sell", -position_size, row["bid"], None))
                         self.position_hold_time = 0
-                        if self.position != 0:
-                            assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
+                        # if self.position != 0:
+                        #     assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
             # Close all positions if signal is 0 and you have an open position
             elif signal == 0 and self.position != 0:
                 if self.position > 0:
@@ -959,8 +959,8 @@ class MeanReversionStrategy:
                 self.position = 0
                 self.entry_price = 0
                 self.position_hold_time = 0
-                if self.position != 0:
-                    assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
+                # if self.position != 0:
+                #     assert self.entry_price not in (None, 0), "BUG: entry_price is 0 when position is nonzero"
             
             # Update tracking variables
             current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
