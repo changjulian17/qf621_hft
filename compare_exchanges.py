@@ -1,3 +1,4 @@
+# %%
 from src.wrds_pull import fetch_taq_data, fetch_avg_daily_volume
 from src.strategy import OBIVWAPStrategy, MeanReversionStrategy, StrategyPortfolio
 from src.performance import evaluate_strategy_performance
@@ -7,11 +8,11 @@ import gc
 import csv
 import os
 import logging
-
+# %%
 EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'", "'T'"]
 # EXCHANGES = ["'Z'", "'Q'"]
 QU_COND_FILTER = "'R'"
-START_DATE = '2023-05-10'
+START_DATE = '2023-01-10'
 END_DATE = '2023-05-10'
 START_TIME = (9, 55)
 END_TIME = (15, 36)
@@ -19,7 +20,7 @@ VWAP_WINDOW = 500
 OBI_THRESHOLD = 0
 SIZE_THRESHOLD = 0
 VWAP_THRESHOLD = 0
-
+# %%
 def main():
     # Load tickers
     with open("data/positive_return_tickers_v1.txt") as f:
@@ -44,7 +45,7 @@ def main():
                 quote_conds=QU_COND_FILTER,
                 start_date=START_DATE,
                 end_date=END_DATE,
-                wrds_username='changjulian17'
+                wrds_username='shobhit999'
             )
             # Query average daily volume for this batch and exchange
             avg_vol_df = fetch_avg_daily_volume(
@@ -54,7 +55,7 @@ def main():
                 end_date=END_DATE,
                 start_time="09:30:00",
                 end_time="16:00:00",
-                wrds_username='changjulian17'
+                wrds_username='shobhit999'
             )
             # Build a lookup for (ticker, exchange) -> avg_daily_volume
             avg_vol_map = {
@@ -154,3 +155,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+# %%
