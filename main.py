@@ -1,6 +1,5 @@
 from src.wrds_pull import fetch_taq_data
-from src.strategy import OBIVWAPStrategy, StrategyPortfolio, MeanReversionStrategy, OBIVWAPoldStrategy
-from src.plot import plot_account_balance
+from src.strategy import OBIVWAPStrategy, StrategyPortfolio, MeanReversionStrategy, InverseOBIVWAPStrategy
 from src.performance import evaluate_strategy_performance
 from src.logger_config import setup_logger
 import polars as pl
@@ -62,45 +61,47 @@ if __name__ == "__main__":
     stock_tickers = df["sym_root"].unique().to_list()
     logger.info(f"Tickers found in data: {stock_tickers}")
 
-    portfolio = StrategyPortfolio(initial_cash=args.initial_cash, rebalance_threshold=args.rebalance_threshold)
-    obi_strategy = OBIVWAPStrategy(
-        vwap_window=500,
-        obi_window=20,
-        price_impact_window=50,
-        momentum_window=100,
-        volatility_window=50,
-        trend_window=20,
-        max_position=100,
-        stop_loss_pct=0.5,
-        profit_target_pct=1.0,
-        risk_per_trade=0.20,
-        min_profit_threshold=0.001,
-        start_time=start_time,
-        end_time=end_time,
-        logger=logger
-    )
-    portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.5)
     
-    mean_rev_strategy = MeanReversionStrategy(
-        vwap_window=100,
-        deviation_threshold=0.002,
-        volatility_window=20,
-        volume_window=50,
-        max_position=100,
-        stop_loss_pct=0.3,
-        profit_target_pct=0.6,
-        risk_per_trade=0.20,
-        min_profit_threshold=0.001,
-        start_time=start_time,
-        end_time=end_time,
-        logger=logger
-    )
-    portfolio.add_strategy("Mean-Reversion", mean_rev_strategy, weight=0.5)
 
     positive_return_tickers = []
     all_results = {}
 
     for ticker in stock_tickers:
+        portfolio = StrategyPortfolio(initial_cash=args.initial_cash, rebalance_threshold=args.rebalance_threshold)
+        obi_strategy = OBIVWAPStrategy(
+            vwap_window=500,
+            momentum_window=100,
+            volatility_window=50,
+            trend_window=20,
+            max_position=100,
+            start_time=start_time,
+            end_time=end_time,
+            logger=logger
+        )
+        portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.3)
+        
+        mean_rev_strategy = MeanReversionStrategy(
+            vwap_window=300,
+            volatility_window=100,
+            volume_window=50,
+            max_position=100,
+            start_time=start_time,
+            end_time=end_time,
+            logger=logger
+        )
+        portfolio.add_strategy("Mean-Reversion", mean_rev_strategy, weight=0.3)
+        
+        inverse_obi_strategy = InverseOBIVWAPStrategy(
+            vwap_window=500,
+            momentum_window=100,
+            volatility_window=50,
+            trend_window=20,
+            max_position=100,
+            start_time=start_time,
+            end_time=end_time,
+            logger=logger
+        )
+        portfolio.add_strategy("Inverse-OBI-VWAP", inverse_obi_strategy, weight=0.4)
         logger.info(f"Processing {ticker}...")
         ticker_data = df.filter(pl.col("sym_root") == ticker)
         logger.info(f"Data for {ticker} contains {ticker_data.shape[0]} records")
@@ -112,6 +113,21 @@ if __name__ == "__main__":
         results = portfolio.run_backtest(ticker_data)
         all_results[ticker] = results
         
+        # Save backtest results for each strategy
+        date_str = args.start_date
+        output_dir = f"data/backtest_results/{ticker}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save individual strategy results
+        # df is a Polars DataFrame, convert to CSV
+        # the strat names are results['OBI-VWAP'], results['Mean-Reversion'], results['Inverse-OBI-VWAP]
+        for name in ['OBI-VWAP', 'Mean-Reversion', 'Inverse-OBI-VWAP']:
+            strategy_results = results[name]
+            if strategy_results is not None:
+                strategy_df = pl.DataFrame(strategy_results)
+                strategy_df.write_csv(f"{output_dir}/{name}_results_{date_str}.csv")
+                logger.info(f"Saved {name} results for {ticker} to {output_dir}/{name}_results_{date_str}.csv")
+        
         # Log portfolio metrics
         logger.info(f"\nPortfolio Performance for {ticker}:")
         logger.info(f"Total Return: {results['Metrics']['Total_Return']:.2f}%")
@@ -121,11 +137,13 @@ if __name__ == "__main__":
 
         if results['Metrics']['Total_Return'] > 0:
             positive_return_tickers.append(ticker)
+        
+        
 
     # Append to positive return tickers file
-    with open("data/positive_return_tickers.txt", "a") as f:
-        for t in positive_return_tickers:
-            f.append(f"{t}\n")
+    # with open("data/positive_return_tickers.txt", "a") as f:
+    #     for t in positive_return_tickers:
+    #         f.append(f"{t}\n")
 
     del df
     gc.collect()

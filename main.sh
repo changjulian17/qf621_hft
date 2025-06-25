@@ -4,13 +4,13 @@
 BATCH_SIZE=6
 MAX_TICKERS=483
 START_DATE="2023-08-14"
-END_DATE="2023-08-18"
+END_DATE="2023-08-14"
 
 # Clear the positive return tickers file before starting
 > data/positive_return_tickers.txt
 
 # Read tickers from file
-TICKERS=($(cat data/filtered_tickers.txt))
+TICKERS=($(cat data/positive_return_tickers_v1.txt))
 
 # Calculate number of batches needed
 NUM_TICKERS=${#TICKERS[@]}
