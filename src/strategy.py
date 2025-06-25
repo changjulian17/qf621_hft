@@ -3,43 +3,29 @@ import logging
 import numpy as np
 import math
 from typing import Optional
+def log_backtest_summary(strategy_name: str, account_balance: list, 
+                         logger: logging.Logger, num_ticks: int, num_days: float):
+    """Logs summary metrics adjusted for tick-based Sharpe."""
+    
+    # Calculate metrics based on StrategyPortfolio implementation
+    initial_balance = account_balance[0] if account_balance else 300_000
+    final_balance = account_balance[-1] if account_balance else initial_balance
+    avg_return = final_balance / initial_balance - 1
 
-def log_backtest_summary(strategy_name: str, account_balance: list, trades: list,
-                      avg_daily_return: float, std_daily_return: float,
-                      max_drawdown: float, logger: logging.Logger):
-    """Common method to log backtest summary metrics in a consistent format."""
-    total_return = (account_balance[-1] / account_balance[0] - 1) * 100
-    risk_free_rate = 0.01 / 252  # Assuming 1% annual risk-free rate
-    
-    # Calculate Sharpe and Sortino ratios
-    sharpe_ratio = ((avg_daily_return - risk_free_rate) / std_daily_return) * np.sqrt(252) if std_daily_return > 0 else 0
-    
-    # Win rate calculation
-    profitable_trades = sum(1 for t in trades if 
-        (t[0] in ["Take Profit", "Close Long", "Close Short"]) and
-        ((t[1] > 0 and t[3] is not None and t[3] > t[2]) or 
-         (t[1] < 0 and t[3] is not None and t[3] < t[2])))
-    win_rate = profitable_trades / len(trades) if trades else 0
-    
-    # Calculate average profit per trade
-    avg_profit = 0
-    if trades:
-        profits = [(t[3] - t[2]) * t[1] for t in trades if t[3] is not None]
-        avg_profit = sum(profits) / len(profits) if profits else 0
-    
-    # Log all metrics in a consistent format
-    logger.info(f"\n{'='*50}")
-    logger.info(f"{strategy_name} Performance Summary:")
-    logger.info(f"{'-'*50}")
-    logger.info(f"Final Account Balance: ${account_balance[-1]:,.2f}")
-    logger.info(f"Total Return: {total_return:.4f}%")
-    logger.info(f"Sharpe Ratio: {sharpe_ratio:.4f}")
-    logger.info(f"Maximum Drawdown: {max_drawdown:.4%}")
-    logger.info(f"Number of Trades: {len(trades)}")
-    logger.info(f"Win Rate: {win_rate:.2%}")
-    logger.info(f"Average Profit per Trade: ${avg_profit:.2f}")
+
+
+
+    logger.info(f"{'='*50}")
+    logger.info(f"Backtest Summary for {strategy_name}")
+    logger.info(f"Initial Balance: ${initial_balance:,.2f}")
+    logger.info(f"Final Balance: ${final_balance:,.2f}")
+    logger.info(f"Number of Ticks: {num_ticks}")
+    logger.info(f"Number of Days: {num_days}")
+    logger.info(f"Average Return: {avg_return:.4%}")
+
+
+
     logger.info(f"{'='*50}\n")
-
 
 
 class OBIVWAPStrategy:
@@ -68,7 +54,7 @@ class OBIVWAPStrategy:
         self.stop_loss_pct = stop_loss_pct
         self.profit_target_pct = profit_target_pct
         self.risk_per_trade = risk_per_trade
-        self.cash = 100_000  # Fixed cash initialization
+        self.cash = 300_000  # Fixed cash initialization
         self.position = 0
         self.entry_price = 0
         self.start_time = start_time
@@ -559,16 +545,21 @@ class OBIVWAPStrategy:
         avg_daily_return = df.select(pl.col("Returns").mean()).item()
         std_daily_return = df.select(pl.col("Returns").std()).item()
         max_drawdown = df.select(pl.col("Drawdown").max()).item()
+
+
         
         # Log summary using the common format
         log_backtest_summary(
             strategy_name="OBI VWAP Strategy",
             account_balance=account_balance,
             trades=trades,
-            avg_daily_return=avg_daily_return,
-            std_daily_return=std_daily_return,
+            avg_return=avg_daily_return,         # Now per-tick return
+            std_return=std_daily_return,         # Now per-tick std
             max_drawdown=max_drawdown,
-            logger=self.logger
+            logger=self.logger,
+            num_ticks=len(df),                   # Total rows = ticks
+            num_days = 1
+
         )
         return df
 
@@ -598,7 +589,7 @@ class InverseOBIVWAPStrategy:
         self.profit_target_pct = profit_target_pct
         self.risk_per_trade = risk_per_trade
         self.obi_threshold = obi_threshold
-        self.cash = 100_000
+        self.cash = 300_000
         self.position = 0
         self.entry_price = 0
         self.start_time = start_time
@@ -1132,158 +1123,23 @@ class InverseOBIVWAPStrategy:
         avg_daily_return = df.select(pl.col("Returns").mean()).item()
         std_daily_return = df.select(pl.col("Returns").std()).item()
         max_drawdown = df.select(pl.col("Drawdown").max()).item()
-        
+
+
         # Log summary using the common format
         log_backtest_summary(
             strategy_name="Inverse OBI VWAP Strategy",
             account_balance=account_balance,
             trades=trades,
-            avg_daily_return=avg_daily_return,
-            std_daily_return=std_daily_return,
+            avg_return=avg_daily_return,         # Now per-tick return
+            std_return=std_daily_return,         # Now per-tick std
             max_drawdown=max_drawdown,
-            logger=self.logger
+            logger=self.logger,
+            num_ticks=len(df),                   # Total rows = ticks
+            num_days = 1
+
         )
         return df
 
-
-
-class StrategyPortfolio:
-    """
-    Manages multiple trading strategies simultaneously, each with its own portfolio.
-    
-    This class allows running and tracking multiple strategies in parallel, with each
-    strategy maintaining its own position, cash balance, and performance metrics.
-    
-    Attributes:
-        strategies (dict): Dictionary mapping strategy names to strategy instances
-        initial_cash (float): Initial cash balance for each strategy
-        portfolio_weights (dict): Dictionary mapping strategy names to their portfolio weights
-        rebalance_threshold (float): Threshold for portfolio rebalancing
-        last_rebalance_date (datetime): Date of last portfolio rebalancing
-        
-    Methods:
-        add_strategy(name: str, strategy: BaseStrategy, weight: float = None):
-            Adds a new strategy to the portfolio
-        remove_strategy(name: str):
-            Removes a strategy from the portfolio
-        rebalance_portfolio():
-            Rebalances the portfolio according to target weights
-        run_backtest(data: pl.DataFrame) -> dict:
-            Runs backtest for all strategies and returns combined results
-        get_portfolio_performance() -> dict:
-            Returns combined portfolio performance metrics
-    """
-    
-    def __init__(self, initial_cash: float = 1_000_000, rebalance_threshold: float = 0.1):
-        """Initialize the strategy portfolio."""
-        self.strategies = {}
-        self.initial_cash = initial_cash
-        self.portfolio_weights = {}
-
-        
-    def add_strategy(self, name: str, strategy: 'OBIVWAPStrategy', weight: float = None):
-        """Add a new strategy to the portfolio."""
-        if name in self.strategies:
-            raise ValueError(f"Strategy {name} already exists in portfolio")
-            
-        # Initialize strategy with its portion of initial cash
-        if weight is not None:
-            strategy_cash = self.initial_cash * weight
-            strategy.cash = strategy_cash
-            self.portfolio_weights[name] = weight
-        else:
-            # Equal weight if not specified
-            strategy_cash = self.initial_cash / (len(self.strategies) + 1)
-            strategy.cash = strategy_cash
-            self.portfolio_weights[name] = 1.0 / (len(self.strategies) + 1)
-            
-        self.strategies[name] = strategy
-        
-            
-    def remove_strategy(self, name: str):
-        """Remove a strategy from the portfolio."""
-        if name not in self.strategies:
-            raise ValueError(f"Strategy {name} not found in portfolio")
-            
-        # Close positions and redistribute cash
-        strategy = self.strategies[name]
-        remaining_cash = strategy.cash + (strategy.position * strategy.entry_price if strategy.position != 0 else 0)
-        
-        del self.strategies[name]
-        del self.portfolio_weights[name]
-        
-        # Redistribute cash to remaining strategies
-        if self.strategies:
-            cash_per_strategy = remaining_cash / len(self.strategies)
-            for s in self.strategies.values():
-                s.cash += cash_per_strategy
-
-                
-    def run_backtest(self, data: pl.DataFrame) -> dict:
-        """Run backtest for all strategies and return combined results."""
-        results = {}
-        portfolio_values = []
-        
-        # Run backtest for each strategy
-        for name, strategy in self.strategies.items():
-            strategy_data = data.clone()
-            results[name] = strategy.backtest(strategy_data)
-
-        # Efficiently aggregate Account_Balance and Position columns across all strategies
-        account_balance_series_list = [
-            result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
-        ]
-        position_series_list = [
-            result["Position"] for name, result in results.items() if "Position" in result.columns
-        ]
-
-        if account_balance_series_list:
-            portfolio_account_balance = sum(account_balance_series_list)
-        else:
-            portfolio_account_balance = pl.Series([0.0] * len(data), dtype=pl.Float64)
-
-        if position_series_list:
-            portfolio_positions = sum(position_series_list)
-        else:
-            portfolio_positions = pl.Series([0] * len(data), dtype=pl.Int64)
-
-        # Add portfolio value and position to results
-        results["Portfolio"] = data.with_columns(
-            pl.Series("Portfolio_Value", portfolio_account_balance),
-            pl.Series("Position", portfolio_positions)
-        )
-        
-        # Calculate portfolio metrics
-        portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
-        results["Metrics"] = portfolio_metrics
-        
-        return results
-        
-    def calculate_portfolio_metrics(self, portfolio_data: pl.DataFrame) -> dict:
-        """Calculate combined portfolio performance metrics."""
-        returns = portfolio_data["Portfolio_Value"].pct_change()
-        
-        # Calculate metrics
-        total_return = (portfolio_data["Portfolio_Value"][-1] / portfolio_data["Portfolio_Value"][0] - 1) * 100
-        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
-        
-        # Calculate drawdown
-        peak = portfolio_data["Portfolio_Value"].cum_max()
-        drawdown = (portfolio_data["Portfolio_Value"] - peak) / peak
-        max_drawdown = drawdown.min() * 100
-        
-        # Calculate Sortino ratio
-        downside_returns = returns.filter(returns < 0)
-        downside_returns = downside_returns.fill_null(0)  # Handle NaNs
-        sortino_ratio = (returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
-        
-        return {
-            "Total_Return": total_return,
-            "Sharpe_Ratio": sharpe_ratio,
-            "Sortino_Ratio": sortino_ratio,
-            "Max_Drawdown": max_drawdown
-        }
-        
 
 class MeanReversionStrategy:
     """
@@ -1314,8 +1170,8 @@ class MeanReversionStrategy:
     #              logger: Optional[logging.Logger] = None)
     def __init__(self, vwap_window: int = 20, 
                  volatility_window: int = 20, volume_window: int = 20,
-                 max_position: int = 100, stop_loss_pct: float = 0.3,
-                 profit_target_pct: float = 0.6, 
+                 max_position: int = 100, stop_loss_pct: float = 1,
+                 profit_target_pct: float = 2, 
                  risk_per_trade: float = 0.02, 
                  start_time: tuple = (9, 30, 865), end_time: tuple = (16, 28, 954),
                  logger: Optional[logging.Logger] = None):
@@ -1418,7 +1274,7 @@ class MeanReversionStrategy:
 
         position_size = int(risk_amount / risk_per_share)
         logging.debug(f"Calculated position size: {position_size} for price: {price}, volatility: {volatility}, portfolio_value: {portfolio_value}")
-        return min(position_size, self.max_position)   
+        return 1 
     
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
         """Generate trading signals based on mean reversion indicators."""
@@ -1464,196 +1320,343 @@ class MeanReversionStrategy:
         
         return df
 
+
+
+
         
-    def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
+    def backtest(self, df_fin: pl.DataFrame, days) -> pl.DataFrame:
         """Run backtest simulation and return performance metrics and all indicators for plotting."""
         # Calculate all indicators and add them to the DataFrame before running the backtest loop
         self.logger.info(f"Starting backtest for MeanReversionStrategy with initial cash: ${self.cash:,.2f}")
+        self.cash = 300_000  # Reset cash for each backtest
 
-        df = self.generate_signals(df)
 
-        # Prepare lists for tracking
-        account_balance = []
-        positions = []
-        entry_prices = []
-        position_hold_times = []
-        trade_markers = []  # 1 for entry, -1 for exit, 0 for no trade
-        stop_loss_hits = []
-        take_profit_hits = []
-        max_hold_time_hits = []
-        unrealized_pnl_values = []
-        unrealized_pnl_pct_values = []
-        position_sizes = []
-        trades = []
-        last_signal = 0
-        self.cash = 100_000  # Reset cash for each backtest
-        self.position = 0
-        self.entry_price = 0
-        self.position_hold_time = 0
+        for date in days:
+            # Filter DataFrame for the current date
+            df = df_fin.filter(pl.col("date") == date)
+            self.position_hold_time = 0
+            self.position = 0
+            self.entry_price = 0
+            pos_size = 2
+            df = self.generate_signals(df)
 
-        for i, row in enumerate(df.iter_rows(named=True)):
-            signal = row["Signal"]
-            mid_price = row["MID_PRICE"]
-            current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
-            volatility = row['Volatility']
-            # Calculate position size for this row (for plotting)
-            pos_size = self.calculate_position_size(mid_price, volatility, current_portfolio)
-            position_sizes.append(pos_size)
+            # Prepare lists for tracking
+            account_balance = []
+            positions = []
+            trades = []
+            entry_prices = []
+            trade_markers = []  # 1 for entry, -1 for exit, 0 for no trade
+            stop_loss_hits = []
+            take_profit_hits = []
+            max_hold_time_hits = []
+            position_sizes = []
+            last_signal = 0
+            curr_date = None
 
-            # Track entry price for this row
-            entry_prices.append(self.entry_price if self.position != 0 else None)
-            position_hold_times.append(self.position_hold_time if self.position != 0 else 0)
+            for i, row in enumerate(df.iter_rows(named=True)):
 
-            # Calculate unrealized PnL
-            if self.position != 0 and self.entry_price not in (None, 0):
-                unrealized_pnl = (mid_price - self.entry_price) * self.position
-                unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
-            else:
-                unrealized_pnl = 0
-                unrealized_pnl_pct = 0
-            unrealized_pnl_values.append(unrealized_pnl)
-            unrealized_pnl_pct_values.append(unrealized_pnl_pct)
+                signal = row["Signal"]
 
-            # Default trade marker and event flags
-            trade_marker = 0
-            stop_loss_hit = 0
-            take_profit_hit = 0
-            max_hold_time_hit = 0
 
-            # Process existing position
-            if self.position != 0 and self.entry_price not in (None, 0):
-                self.position_hold_time += 1
-                # Max hold time
-                if self.position_hold_time >= self.max_hold_time:
-                    self.cash += mid_price * self.position
-                    trades.append(("Max Hold Time", self.position, self.entry_price, mid_price))
-                    trade_marker = -1
-                    max_hold_time_hit = 1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
-                # Stop loss
-                elif (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
-                     (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
-                    self.cash += mid_price * self.position
-                    trades.append(("Stop Loss", self.position, self.entry_price, mid_price))
-                    trade_marker = -1
-                    stop_loss_hit = 1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
-                # Take profit
-                elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
-                     (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
-                    self.cash += mid_price * self.position
-                    trades.append(("Take Profit", self.position, self.entry_price, mid_price))
-                    trade_marker = -1
-                    take_profit_hit = 1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
+                # Default trade marker and event flags
+                trade_marker = 0
+                stop_loss_hit = 0
+                take_profit_hit = 0
+                max_hold_time_hit = 0
+                
+                if self.position > 0:
+                    unrealized_pnl = (row["bid"] - self.entry_price) * self.position
+                elif self.position < 0:
+                    unrealized_pnl = (self.entry_price - row["ask"]) * abs(self.position)
+                else:
+                    unrealized_pnl = 0
+                unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
 
-            # Process new signals
-            if signal != 0 and signal != last_signal:
-                if signal == 1 and self.position <= 0:
-                    # Close any existing short position
-                    if self.position < 0:
-                        self.cash -= row["ask"] * abs(self.position)
-                        trades.append(("Close Short", self.position, self.entry_price, row["ask"]))
+                # Process existing position
+                if self.position != 0 and self.entry_price not in (None, 0):
+                    self.position_hold_time += 1
+                    # Max hold time
+                    if self.position_hold_time >= self.max_hold_time:
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position
+                            trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["bid"]))
+                        else:
+                            self.cash -= row["ask"] * abs(self.position)
+                            trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["ask"]))
                         trade_marker = -1
+                        max_hold_time_hit = 1
                         self.position = 0
                         self.entry_price = 0
                         self.position_hold_time = 0
-                    # Open long position
-                    if pos_size > 0 and self.cash >= row["ask"] * pos_size:
-                        self.cash -= row["ask"] * pos_size
-                        self.position = pos_size
-                        self.entry_price = row["ask"]
-                        trades.append(("Buy", pos_size, row["ask"], None))
-                        trade_marker = 1
+                    # Stop loss
+                    elif (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
+                        (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
+                        if self.position > 0:
+                            self.cash -=  row["ask"] * self.position
+                            trades.append(("Stop Loss", self.position, self.entry_price, row["ask"]))
+                        else:
+                            self.cash += row["bid"] * abs(self.position)
+                            trades.append(("Stop Loss", self.position, self.entry_price, row["bid"]))
+                        trade_marker = -1
+                        stop_loss_hit = 1
+                        self.position = 0
+                        self.entry_price = 0
                         self.position_hold_time = 0
-                elif signal == -1 and self.position >= 0:
-                    # Close any existing long position
+                    # Take profit
+                    elif (self.position > 0) or \
+                        (self.position < 0):
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position
+                            trades.append(("Take Profit", self.position, self.entry_price, row["bid"]))
+                        else:
+                            self.cash -= row["ask"] * abs(self.position)
+                            trades.append(("Take Profit", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                        take_profit_hit = 1
+                        self.position = 0
+                        self.entry_price = 0
+                        self.position_hold_time = 0
+
+                # Process new signals
+                if signal != 0 and signal != last_signal:
+                    if signal == 1 and self.position <= 0:
+                        # Close any existing short position
+                        if self.position < 0:
+                            self.cash -= row["ask"] * abs(self.position)
+                            trades.append(("Close Short", self.position, self.entry_price, row["ask"]))
+                            trade_marker = -1
+                            self.position = 0
+                            self.entry_price = 0
+                            self.position_hold_time = 0
+                        # Open long position
+                        if pos_size > 0 and self.cash >= row["ask"] * pos_size:
+                            self.cash -= row["ask"] * pos_size
+                            self.position = pos_size
+                            self.entry_price = row["ask"]
+                            trades.append(("Buy", pos_size, row["ask"], None))
+                            trade_marker = 1
+                            self.position_hold_time = 0
+                    elif signal == -1 and self.position >= 0:
+                        # Close any existing long position
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position
+                            trades.append(("Close Long", self.position, self.entry_price, row["bid"]))
+                            trade_marker = -1
+                            self.position = 0
+                            self.entry_price = 0
+                            self.position_hold_time = 0
+                        # Open short position
+                        if pos_size > 0:
+                            self.cash += row["bid"] * pos_size
+                            self.position = -pos_size
+                            self.entry_price = row["bid"]
+                            trades.append(("Sell", -pos_size, row["bid"], None))
+                            trade_marker = 1
+                            self.position_hold_time = 0
+                # Close all positions if signal is 0 and you have an open position
+                elif signal == 0 and self.position != 0:
                     if self.position > 0:
                         self.cash += row["bid"] * self.position
-                        trades.append(("Close Long", self.position, self.entry_price, row["bid"]))
+                        trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
                         trade_marker = -1
-                        self.position = 0
-                        self.entry_price = 0
-                        self.position_hold_time = 0
-                    # Open short position
-                    if pos_size > 0:
-                        self.cash += row["bid"] * pos_size
-                        self.position = -pos_size
-                        self.entry_price = row["bid"]
-                        trades.append(("Sell", -pos_size, row["bid"], None))
-                        trade_marker = 1
-                        self.position_hold_time = 0
-            # Close all positions if signal is 0 and you have an open position
-            elif signal == 0 and self.position != 0:
-                if self.position > 0:
-                    self.cash += row["bid"] * self.position
-                    trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
-                    trade_marker = -1
-                elif self.position < 0:
-                    self.cash -= row["ask"] * abs(self.position)
-                    trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
-                    trade_marker = -1
-                self.position = 0
-                self.entry_price = 0
-                self.position_hold_time = 0
+                    elif self.position < 0:
+                        self.cash -= row["ask"] * abs(self.position)
+                        trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                    self.position = 0
+                    self.entry_price = 0
+                    self.position_hold_time = 0
 
-            # Update tracking variables
-            current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
-            account_balance.append(current_balance)
-            positions.append(self.position)
-            trade_markers.append(trade_marker)
-            stop_loss_hits.append(stop_loss_hit)
-            take_profit_hits.append(take_profit_hit)
-            max_hold_time_hits.append(max_hold_time_hit)
-            last_signal = signal
+                # Update tracking variables
+                if self.position != 0:
+                    # calculate balance with current position using bid/ask price
+                    if self.position > 0:
+                        current_balance = self.cash + (self.position * row["bid"])
+                    else:
+                        current_balance = self.cash - (self.position * row["ask"])
+                else:
+                    current_balance = self.cash
+                account_balance.append(current_balance)
+                positions.append(self.position)
+                trade_markers.append(trade_marker)
+                stop_loss_hits.append(stop_loss_hit)
+                take_profit_hits.append(take_profit_hit)
+                max_hold_time_hits.append(max_hold_time_hit)
+                position_sizes.append(pos_size)
+                entry_prices.append(self.entry_price)
+                last_signal = signal
 
-        # Add all tracked metrics and indicators to DataFrame for plotting
-        metrics_df = pl.DataFrame({
-            "Account_Balance": [float(x) for x in account_balance],
-            "Position": [float(x) for x in positions],
-            "Entry_Price": [float(x) if x is not None else float('nan') for x in entry_prices],
-            "Position_Hold_Time": [float(x) for x in position_hold_times],
-            "Position_Size": [float(x) for x in position_sizes],
-            "Unrealized_PnL": [float(x) for x in unrealized_pnl_values],
-            "Unrealized_PnL_Pct": [float(x) for x in unrealized_pnl_pct_values],
-            "Trade_Marker": [float(x) for x in trade_markers],
-            "Stop_Loss_Hit": [float(x) for x in stop_loss_hits],
-            "Take_Profit_Hit": [float(x) for x in take_profit_hits],
-            "Max_Hold_Time_Hit": [float(x) for x in max_hold_time_hits]
-        })
-        df = df.hstack(metrics_df)
+            # Add all tracked metrics and indicators to DataFrame for plotting
+            metrics_df = pl.DataFrame({
+                "Account_Balance": [float(x) for x in account_balance],
+                "Position": [float(x) for x in positions],
+                "Entry_Price": [float(x) if x is not None else float('nan') for x in entry_prices],
+                "Position_Size": [float(x) for x in position_sizes],
+                "Trade_Marker": [float(x) for x in trade_markers],
+                "Stop_Loss_Hit": [float(x) for x in stop_loss_hits],
+                "Take_Profit_Hit": [float(x) for x in take_profit_hits],
+                "Max_Hold_Time_Hit": [float(x) for x in max_hold_time_hits]
+            })
+            df = df.hstack(metrics_df)
 
-        # Calculate returns and metrics
-        df = df.with_columns([
-            pl.col("Account_Balance").pct_change().alias("Returns")
-        ])
 
-        df = df.with_columns(
-            pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value"),
-        )
+            df = df.with_columns(
+                pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value"),
+            )
 
-        df = df.with_columns(
-            ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
-        )
-        # Calculate performance metrics
-        avg_daily_return = df.select(pl.col("Returns").mean()).item()
-        std_daily_return = df.select(pl.col("Returns").std()).item()
-        max_drawdown = df.select(pl.col("Drawdown").max()).item()
-        
-        # Log summary using the common format
-        log_backtest_summary(
-            strategy_name="Mean Reversion Strategy",
-            account_balance=account_balance,
-            trades=trades,
-            avg_daily_return=avg_daily_return,
-            std_daily_return=std_daily_return,
-            max_drawdown=max_drawdown,
-            logger=self.logger
-        )
+            df = df.with_columns(
+                ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
+            )
+
+
+            # Log summary using the common format
+            log_backtest_summary(
+                strategy_name="Mean Reversion Strategy",
+                account_balance=account_balance,
+                logger=self.logger,
+                num_ticks=len(df),                  
+                num_days = 1
+            )
+            
         return df
+
+
+
+
+class StrategyPortfolio:
+    """
+    Manages multiple trading strategies simultaneously, each with its own portfolio.
+    
+    This class allows running and tracking multiple strategies in parallel, with each
+    strategy maintaining its own position, cash balance, and performance metrics.
+    
+    Attributes:
+        strategies (dict): Dictionary mapping strategy names to strategy instances
+        initial_cash (float): Initial cash balance for each strategy
+        portfolio_weights (dict): Dictionary mapping strategy names to their portfolio weights
+        rebalance_threshold (float): Threshold for portfolio rebalancing
+        last_rebalance_date (datetime): Date of last portfolio rebalancing
+        
+    Methods:
+        add_strategy(name: str, strategy: BaseStrategy, weight: float = None):
+            Adds a new strategy to the portfolio
+        remove_strategy(name: str):
+            Removes a strategy from the portfolio
+        rebalance_portfolio():
+            Rebalances the portfolio according to target weights
+        run_backtest(data: pl.DataFrame) -> dict:
+            Runs backtest for all strategies and returns combined results
+        get_portfolio_performance() -> dict:
+            Returns combined portfolio performance metrics
+    """
+    
+    def __init__(self, initial_cash: float = 1_000_000, rebalance_threshold: float = 0.1):
+        """Initialize the strategy portfolio."""
+        self.strategies = {}
+        self.initial_cash = initial_cash
+        self.portfolio_weights = {}
+
+        
+    def add_strategy(self, name: str, strategy: 'OBIVWAPStrategy', weight: float = None):
+        """Add a new strategy to the portfolio."""
+        if name in self.strategies:
+            raise ValueError(f"Strategy {name} already exists in portfolio")
+            
+        # Initialize strategy with its portion of initial cash
+        if weight is not None:
+            strategy_cash = self.initial_cash * weight
+            strategy.cash = strategy_cash
+            self.portfolio_weights[name] = weight
+        else:
+            # Equal weight if not specified
+            strategy_cash = self.initial_cash / (len(self.strategies) + 1)
+            strategy.cash = strategy_cash
+            self.portfolio_weights[name] = 1.0 / (len(self.strategies) + 1)
+            
+        self.strategies[name] = strategy
+        
+            
+    def remove_strategy(self, name: str):
+        """Remove a strategy from the portfolio."""
+        if name not in self.strategies:
+            raise ValueError(f"Strategy {name} not found in portfolio")
+            
+        # Close positions and redistribute cash
+        strategy = self.strategies[name]
+        remaining_cash = strategy.cash + (strategy.position * strategy.entry_price if strategy.position != 0 else 0)
+        
+        del self.strategies[name]
+        del self.portfolio_weights[name]
+        
+        # Redistribute cash to remaining strategies
+        if self.strategies:
+            cash_per_strategy = remaining_cash / len(self.strategies)
+            for s in self.strategies.values():
+                s.cash += cash_per_strategy
+
+                
+    def run_backtest(self, data: pl.DataFrame, days) -> dict:
+        """Run backtest for all strategies and return combined results."""
+        results = {}
+        portfolio_values = []
+        
+        # Run backtest for each strategy
+        for name, strategy in self.strategies.items():
+            strategy_data = data.clone()
+            results[name] = strategy.backtest(strategy_data, days)
+
+        # Efficiently aggregate Account_Balance and Position columns across all strategies
+        account_balance_series_list = [
+            result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
+        ]
+        position_series_list = [
+            result["Position"] for name, result in results.items() if "Position" in result.columns
+        ]
+
+        # if account_balance_series_list:
+        #     portfolio_account_balance = sum(account_balance_series_list)
+        # else:
+        #     portfolio_account_balance = pl.Series([0.0] * len(data), dtype=pl.Float64)
+
+        # if position_series_list:
+        #     portfolio_positions = sum(position_series_list)
+        # else:
+        #     portfolio_positions = pl.Series([0] * len(data), dtype=pl.Int64)
+
+        # Add portfolio value and position to results
+        # results["Portfolio"] = data.with_columns(
+        #     pl.Series("Portfolio_Value", portfolio_account_balance),
+        #     pl.Series("Position", portfolio_positions)
+        # )
+        
+        # # Calculate portfolio metrics
+        # portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
+        # results["Metrics"] = portfolio_metrics
+        
+        return results
+        
+    def calculate_portfolio_metrics(self, portfolio_data: pl.DataFrame) -> dict:
+        """Calculate combined portfolio performance metrics."""
+        returns = portfolio_data["Portfolio_Value"].pct_change()
+        
+        # Calculate metrics
+        total_return = (portfolio_data["Portfolio_Value"][-1] / portfolio_data["Portfolio_Value"][0] - 1) * 100
+        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
+        
+        # Calculate drawdown
+        peak = portfolio_data["Portfolio_Value"].cum_max()
+        drawdown = (portfolio_data["Portfolio_Value"] - peak) / peak
+        max_drawdown = drawdown.min() * 100
+        
+        # Calculate Sortino ratio
+        downside_returns = returns.filter(returns < 0)
+        downside_returns = downside_returns.fill_null(0)  # Handle NaNs
+        sortino_ratio = (returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
+        
+        return {
+            "Total_Return": total_return,
+            "Sharpe_Ratio": sharpe_ratio,
+            "Sortino_Ratio": sortino_ratio,
+            "Max_Drawdown": max_drawdown
+        }
+        
