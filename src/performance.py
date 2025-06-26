@@ -1,133 +1,80 @@
 import polars as pl
+import pandas as pd
 import numpy as np
 from typing import Dict, Optional
 import logging
-import re
-
-def evaluate_strategy_performance(backtest_data: pl.DataFrame, logger: Optional[logging.Logger] = None) -> Dict:
+from scipy.stats import skew, kurtosis
+# data =pd.DataFrame({
+#                     "Date": [day],
+#                     "Intraday Sharpe Ratio": [intraday_sharpe_ratio],
+#                     "Intraday Profit": [intraday_profit],
+#                     "Intraday Drawdown": [intraday_drawdown],
+#                     "Intraday Max Return": [intraday_max_return],
+#                     "Intraday Final Balance": [intraday_final_balance]
+#                 })
+def evaluate_strategy_performance(data: pd.DataFrame, logger: Optional[logging.Logger] = None) -> Dict:
     """
-    Evaluate the performance of a trading strategy based on backtest data.
+    Evaluate the performance of a strategy based on its final balance.
 
     Args:
-        backtest_data (pl.DataFrame): DataFrame containing backtest results
-        logger (logging.Logger, optional): Logger instance for output
+        data (pd.DataFrame): DataFrame containing the strategy's performance data, including a column for 'Intraday Final Balance'.
+        logger (Optional[logging.Logger], optional): Logger. Defaults to None.
 
     Returns:
-        dict: 
-            A dictionary containing performance metrics such as total returns, 
-            max drawdown, daily Sharpe ratios, average bid-ask spread, and average Sharpe.
+        Dict: Dictionary of performance metrics.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    # Ensure "Account_Balance" exists in the DataFrame
-    if "Account_Balance" not in backtest_data.columns:
-        raise ValueError("The DataFrame must contain an 'Account_Balance' column.")
+    metrics = {}
 
-    # Calculate total returns and max drawdown
-    account_balance = backtest_data["Account_Balance"].to_numpy()
-    total_returns = (account_balance[-1] / account_balance[0] - 1) * 100
-    drawdown = account_balance / np.maximum.accumulate(account_balance) - 1
-    max_drawdown = np.min(drawdown) * 100
+    if 'Intraday Final Balance' not in data.columns:
+        logger.error("Intraday Final Balance column not found in the data.")
+        return metrics
 
-    # Use the existing Timestamp column and ensure it's sorted
-    df = backtest_data.sort("Timestamp")
-
-    # Resample to 1-minute intervals and forward-fill missing values
-    df = df.group_by_dynamic("Timestamp", every="1m", closed="right").agg(
-        pl.col("Account_Balance").last()
-    ).fill_null(strategy="forward")
-
-    # Compute log returns
-    df = df.with_columns(
-        (pl.col("Account_Balance") / pl.col("Account_Balance").shift(1)).log().alias("Log_Returns")
-    )
-
-    # Group by day and calculate Sharpe ratio
-    daily_sharpe = (
-        df.group_by_dynamic("Timestamp", every="1d")
-        .agg(
-            (pl.col("Log_Returns").mean() / pl.col("Log_Returns").std() * np.sqrt(390 ** 0.5))
-            .alias("Daily_Sharpe_Ratio")
-        )
-    )
-
-    # Calculate total returns and max drawdown
-    total_returns = ((df["Account_Balance"].tail(1).item() / df["Account_Balance"].head(1).item()) - 1) * 100
+    final_balances = data['Intraday Final Balance'].values
     
-    peak = df["Account_Balance"].cum_max()
-    drawdown = ((df["Account_Balance"] - peak) / peak) * 100
-    max_drawdown = drawdown.min()
+    # Calculate returns
+    returns = np.diff(final_balances)
+    
+    if len(returns) == 0:
+        logger.warning("No returns to evaluate.")
+        metrics['error'] = "No returns to evaluate"
+        return metrics
 
-    # Log performance statistics
-    logger.info("\nPERFORMANCE STATISTICS:")
-    logger.info(f"Total returns: {total_returns:.2f}%")
-    logger.info(f"Max drawdown: {max_drawdown:.2f}%")
+    # Calculate total return
+    total_return = final_balances[-1] - final_balances[0]
+    metrics['total_return'] = total_return
 
-    # Log daily Sharpe ratios
-    logger.info("\nDAILY SHARPE RATIOS:")
-    logger.info(str(daily_sharpe))
-    # Calculate average bid-ask spread as a liquidity metric
-    if "bid" in backtest_data.columns and "ask" in backtest_data.columns:
-        avg_bid_ask_spread = (backtest_data["ask"] - backtest_data["bid"]).mean()
+    # Calculate annualized return (assuming daily returns)
+    annualized_return = (1 + total_return)**(252/len(returns)) - 1
+    metrics['annualized_return'] = annualized_return
+
+    # Calculate Sharpe Ratio (assuming risk-free rate of 0)
+    sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)
+    metrics['sharpe_ratio'] = sharpe_ratio
+
+    # Calculate Sortino Ratio (downside deviation)
+    downside_returns = returns[returns < 0]
+    downside_deviation = np.std(downside_returns)
+    if downside_deviation != 0:
+        sortino_ratio = (np.mean(returns) - 0) / downside_deviation * np.sqrt(252)
     else:
-        avg_bid_ask_spread = None
+        sortino_ratio = np.nan
+    metrics['sortino_ratio'] = sortino_ratio
 
-    # Helper to extract average Sharpe
-    def extract_avg_sharpe(metrics):
-        if "Sharpe" in metrics:
-            return metrics["Sharpe"]
-        dsr = metrics.get("Daily_Sharpe_Ratios")
-        if dsr is None:
-            return None
-        try:
-            if hasattr(dsr, "to_pandas"):
-                df = dsr.to_pandas()
-                return df["Daily_Sharpe_Ratio"].mean()
-            elif isinstance(dsr, str):
-                vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", dsr)]
-                if vals:
-                    return sum(vals) / len(vals)
-            elif hasattr(dsr, "__iter__"):
-                vals = list(dsr)
-                if vals and hasattr(vals[0], "get"):
-                    vals = [v.get("Daily_Sharpe_Ratio", 0) for v in vals]
-                return sum(vals) / len(vals)
-        except Exception:
-            return None
-        return None
+    # Calculate maximum drawdown
+    cumulative_returns = np.cumsum(returns)
+    peak = np.maximum.accumulate(cumulative_returns)
+    drawdown = (cumulative_returns - peak) / peak
+    max_drawdown = np.min(drawdown)
+    metrics['max_drawdown'] = max_drawdown
 
-    # Print performance metrics
-    ticker = backtest_data["sym_root"].unique()[0]
-    print(f"\nPERFORMANCE {ticker} STATISTICS:")
-    print(f"Total returns: {total_returns:.2f}%")
-    print(f"Max drawdown: {max_drawdown:.2f}%")
-    if avg_bid_ask_spread is not None:
-        print(f"Average bid-ask spread: {avg_bid_ask_spread:.6f}")
-    else:
-        print("Average bid-ask spread: N/A (bid/ask columns missing)")
-
-    # Print daily Sharpe ratios
-    print("\nDAILY SHARPE RATIOS:")
-    print(daily_sharpe)
-
-    avg_sharpe = extract_avg_sharpe({"Daily_Sharpe_Ratios": daily_sharpe})
-
-    # Average bid-ask spread
-    avg_spread = (backtest_data.select((pl.col("ask") - pl.col("bid"))
-                                       .alias("spread"))["spread"]).mean()
-
-    # Cumulative trades (count nonzero changes in Position)
-    if "Position" in backtest_data.columns:
-        trades = (backtest_data["Position"].diff().abs() > 0).sum()
-    else:
-        trades = None
-
-    # Return metrics as a dictionary
-    return {
-        "Total_Returns": total_returns,
-        "Max_Drawdown": max_drawdown,
-        "Average_Sharpe": avg_sharpe,
-        "Average_Bid_Ask_Spread": avg_spread,
-        "Cumulative_Trades": trades,
-    }
+    # Calculate skewness and kurtosis
+    skewness = skew(returns)
+    kurt = kurtosis(returns)
+    metrics['skewness'] = skewness
+    metrics['kurtosis'] = kurt
+    
+    logger.info(f"Performance metrics: {metrics}")
+    return metrics

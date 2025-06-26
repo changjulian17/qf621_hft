@@ -5,5 +5,12 @@ src/__pycache__/
 
 data/*.csv
 data/**/*.csv
+data/*.json
+# parquet files
+data/**/*.parquet
+data/*.parquet
+# txt files
+data/*.txt
+data/**/*.txt
 hft_env/
 *.log

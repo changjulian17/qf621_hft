@@ -3,8 +3,10 @@ import logging
 import numpy as np
 import math
 from typing import Optional
+from datetime import datetime, timedelta
+
 def log_backtest_summary(strategy_name: str, account_balance: list, 
-                         logger: logging.Logger, num_ticks: int, num_days: float):
+                         logger: logging.Logger, num_ticks: int, df,  num_days):
     """Logs summary metrics adjusted for tick-based Sharpe."""
     
     # Calculate metrics based on StrategyPortfolio implementation
@@ -12,20 +14,64 @@ def log_backtest_summary(strategy_name: str, account_balance: list,
     final_balance = account_balance[-1] if account_balance else initial_balance
     avg_return = final_balance / initial_balance - 1
 
+    # calculate minute by  minute returns
+    # group by minute bins and calculate returns
+    df = df.with_columns([
+        ("2024-06-25 " + pl.col("Time").cast(pl.Utf8))
+        .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S%.6f")
+        .alias("timestamp")
+    ])
+    start_time = df.select(pl.col("timestamp").min()).item()
+    end_time = df.select(pl.col("timestamp").max()).item()
 
+    df = df.with_columns(
+        pl.col("timestamp").dt.truncate("1m").alias("minute")
+    )
+
+    df = df.group_by("minute").agg(
+        pl.col("Account_Balance").last().alias("minute_return")
+    ).sort("minute")
+
+    df = df.with_columns(
+        (pl.col("minute_return") / pl.col("minute_return").shift(1) - 1).alias("returns")
+    ).drop_nulls(subset=["returns"])
+
+    if df.shape[0] > 1:
+        sharpe_ratio = df["returns"].mean() / df["returns"].std()
+    else:
+        sharpe_ratio = 0.0
 
 
     logger.info(f"{'='*50}")
-    logger.info(f"Backtest Summary for {strategy_name}")
+    logger.info(f"Backtest Summary for {strategy_name} : Intraday")
     logger.info(f"Initial Balance: ${initial_balance:,.2f}")
     logger.info(f"Final Balance: ${final_balance:,.2f}")
     logger.info(f"Number of Ticks: {num_ticks}")
     logger.info(f"Number of Days: {num_days}")
     logger.info(f"Average Return: {avg_return:.4%}")
+    logger.info(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+    # start time from polars
 
+
+    logger.info(f"Start Time: {start_time}")
+    logger.info(f"End Time: {end_time}")
+    logger.info(f"Average Trade Return: {df['returns'].mean():.4%}")
+    logger.info(f"Max Drawdown: {df['returns'].min():.4%}")
+    logger.info(f"Max Return: {df['returns'].max():.4%}")
+    logger.info(f"Min Return: {df['returns'].min():.4%}")
+    logger.info(f"Total Profit: ${final_balance - initial_balance:,.2f}")
 
 
     logger.info(f"{'='*50}\n")
+    return {
+        "sharpe_ratio": sharpe_ratio,
+        "profit": final_balance - initial_balance,
+        "drawdown": df["returns"].min(),
+        "max_return": df["returns"].max(),
+        "final_balance": final_balance,
+        
+    }
+
 
 
 class OBIVWAPStrategy:
@@ -1182,7 +1228,7 @@ class MeanReversionStrategy:
         self.max_position = max_position
         self.stop_loss_pct = stop_loss_pct
         self.profit_target_pct = profit_target_pct
-        self.risk_per_trade = risk_per_trade
+        self.risk_per_trade_pct = risk_per_trade
         self.position = 0
         self.entry_price = 0
         self.trades = []
@@ -1260,21 +1306,20 @@ class MeanReversionStrategy:
         
         return df
             
-    def calculate_position_size(self, price: float, volatility: float, portfolio_value: float) -> int:
+    def calculate_position_size(self, price: float, current_balance) -> int:
         """Calculate optimal position size based on risk and volatility."""
-        if volatility == 0 or volatility is None:
-            volatility = 0.001
+        # 1% of current_balance
+        risk_amount = current_balance * self.risk_per_trade_pct
 
-        # Risk-based position sizing
-        risk_amount = portfolio_value * self.risk_per_trade
-        risk_per_share = price * volatility * 2
-
-        if risk_per_share == 0 or math.isnan(risk_per_share):
-            return 0
-
-        position_size = int(risk_amount / risk_per_share)
-        logging.debug(f"Calculated position size: {position_size} for price: {price}, volatility: {volatility}, portfolio_value: {portfolio_value}")
-        return 1 
+        
+        position_size = int((risk_amount / price) / 5) 
+        if position_size > self.max_position:
+            # logging.warning(f"Position size {position_size} exceeds max position {self.max_position}. Capping to max position.")
+            return self.max_position
+        elif position_size < 1:
+            # logging.warning(f"Position size {position_size} is less than 1. Setting to 1.")
+            return 1
+        return position_size
     
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
         """Generate trading signals based on mean reversion indicators."""
@@ -1329,7 +1374,8 @@ class MeanReversionStrategy:
         # Calculate all indicators and add them to the DataFrame before running the backtest loop
         self.logger.info(f"Starting backtest for MeanReversionStrategy with initial cash: ${self.cash:,.2f}")
         self.cash = 300_000  # Reset cash for each backtest
-
+        final_returns = []
+        final_df = []
 
         for date in days:
             # Filter DataFrame for the current date
@@ -1337,7 +1383,7 @@ class MeanReversionStrategy:
             self.position_hold_time = 0
             self.position = 0
             self.entry_price = 0
-            pos_size = 2
+            
             df = self.generate_signals(df)
 
             # Prepare lists for tracking
@@ -1350,12 +1396,16 @@ class MeanReversionStrategy:
             take_profit_hits = []
             max_hold_time_hits = []
             position_sizes = []
+            time_st = []
             last_signal = 0
-            curr_date = None
 
             for i, row in enumerate(df.iter_rows(named=True)):
+                # 1% of account_balance
+                mid_price = row["MID_PRICE"]
+                pos_size = self.calculate_position_size(mid_price, self.cash)
 
                 signal = row["Signal"]
+                time_st.append(row["time_m"])
 
 
                 # Default trade marker and event flags
@@ -1473,7 +1523,7 @@ class MeanReversionStrategy:
                     if self.position > 0:
                         current_balance = self.cash + (self.position * row["bid"])
                     else:
-                        current_balance = self.cash - (self.position * row["ask"])
+                        current_balance = self.cash + (self.position * row["ask"])
                 else:
                     current_balance = self.cash
                 account_balance.append(current_balance)
@@ -1489,6 +1539,7 @@ class MeanReversionStrategy:
             # Add all tracked metrics and indicators to DataFrame for plotting
             metrics_df = pl.DataFrame({
                 "Account_Balance": [float(x) for x in account_balance],
+                "Time": time_st,
                 "Position": [float(x) for x in positions],
                 "Entry_Price": [float(x) if x is not None else float('nan') for x in entry_prices],
                 "Position_Size": [float(x) for x in position_sizes],
@@ -1500,25 +1551,25 @@ class MeanReversionStrategy:
             df = df.hstack(metrics_df)
 
 
+            #convert Time to  datetime
             df = df.with_columns(
-                pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value"),
-            )
-
-            df = df.with_columns(
-                ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
+                pl.col("Time").str.strptime(pl.Time, format="%H:%M:%S%.6f")
             )
 
 
             # Log summary using the common format
-            log_backtest_summary(
+            intraday_info = log_backtest_summary(
                 strategy_name="Mean Reversion Strategy",
                 account_balance=account_balance,
                 logger=self.logger,
-                num_ticks=len(df),                  
+                num_ticks=len(df),
+                df=df,
                 num_days = 1
             )
-            
-        return df
+            final_returns.append(intraday_info)
+            final_df.append(df)
+        
+        return final_df, final_returns
 
 
 
@@ -1598,20 +1649,21 @@ class StrategyPortfolio:
     def run_backtest(self, data: pl.DataFrame, days) -> dict:
         """Run backtest for all strategies and return combined results."""
         results = {}
+        df = {}
         portfolio_values = []
         
         # Run backtest for each strategy
         for name, strategy in self.strategies.items():
             strategy_data = data.clone()
-            results[name] = strategy.backtest(strategy_data, days)
+            df[name],results[name] = strategy.backtest(strategy_data, days)
 
         # Efficiently aggregate Account_Balance and Position columns across all strategies
-        account_balance_series_list = [
-            result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
-        ]
-        position_series_list = [
-            result["Position"] for name, result in results.items() if "Position" in result.columns
-        ]
+        # account_balance_series_list = [
+        #     result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
+        # ]
+        # position_series_list = [
+        #     result["Position"] for name, result in results.items() if "Position" in result.columns
+        # ]
 
         # if account_balance_series_list:
         #     portfolio_account_balance = sum(account_balance_series_list)
@@ -1633,7 +1685,7 @@ class StrategyPortfolio:
         # portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
         # results["Metrics"] = portfolio_metrics
         
-        return results
+        return df, results
         
     def calculate_portfolio_metrics(self, portfolio_data: pl.DataFrame) -> dict:
         """Calculate combined portfolio performance metrics."""
