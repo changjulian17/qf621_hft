@@ -31,12 +31,15 @@ class OBIVWAPStrategy:
         self.max_position = max_position
         self.stop_loss_pct = stop_loss_pct
         self.profit_target_pct = profit_target_pct
-        self.risk_per_trade = risk_per_trade
+        self.risk_per_trade_pct = risk_per_trade
         self.cash = 300_000  # Fixed cash initialization
         self.position = 0
         self.entry_price = 0
+        self.trades = []
         self.start_time = start_time
         self.end_time = end_time
+        self.position_hold_time = 0
+        self.max_hold_time = 100
         self.logger = logger or logging.getLogger(__name__)
 
     def calculate_vwap(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -216,6 +219,20 @@ class OBIVWAPStrategy:
         
         return df
 
+    def calculate_position_size(self, price: float, current_balance) -> int:
+        """Calculate optimal position size based on risk and volatility."""
+        # 1% of current_balance
+        risk_amount = current_balance * self.risk_per_trade_pct
+
+        
+        position_size = int((risk_amount / price) / 5) 
+        if position_size > self.max_position:
+            # logging.warning(f"Position size {position_size} exceeds max position {self.max_position}. Capping to max position.")
+            return self.max_position
+        elif position_size < 1:
+            # logging.warning(f"Position size {position_size} is less than 1. Setting to 1.")
+            return 1
+        return position_size
 
 
     def generate_signals(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -283,261 +300,238 @@ class OBIVWAPStrategy:
         
         return df
 
-    def calculate_position_size(self, price: float, volatility: float, portfolio_value: float,
-                              signal_quality: float) -> int:
-        """Calculate optimal position size based on risk, volatility, and signal quality (aggressive version)."""
-        if volatility == 0:
-            volatility = 0.001  # Prevent division by zero
-            
-        # Very aggressive position sizing
-        risk_amount = portfolio_value * self.risk_per_trade
-        risk_per_share = price * volatility
+    def backtest(self, df_fin: pl.DataFrame, days) -> tuple:
+        """Run backtest simulation and return performance metrics and all indicators for plotting."""
+        # Calculate all indicators and add them to the DataFrame before running the backtest loop
+        self.logger.info(f"Starting backtest for OBIVWAPStrategy with initial cash: ${self.cash:,.2f}")
+        self.cash = 300_000  # Reset cash for each backtest
+        final_returns = []
+        final_df = []
 
-        if risk_per_share == 0 or math.isnan(risk_per_share):
-            return 0
+        for date in days:
+            # Filter DataFrame for the current date
+            df = df_fin.filter(pl.col("date") == date)
+            self.position_hold_time = 0
+            self.position = 0
+            self.entry_price = 0
+            
+            # Calculate all indicators and generate signals
+            df = self.calculate_vwap(df)
+            df = self.calculate_price_impact(df)
+            df = self.calculate_momentum_indicators(df)
+            df = self.calculate_volatility(df)
+            df = self.calculate_market_regime(df)
+            df = self.calculate_signal_quality(df)
+            df = self.generate_signals(df)
 
-        position_size = int(risk_amount / risk_per_share)
-        return min(position_size, self.max_position)
+            # Prepare lists for tracking
+            account_balance = []
+            positions = []
+            trades = []
+            entry_prices = []
+            trade_markers = []  # 1 for entry, -1 for exit, 0 for no trade
+            stop_loss_hits = []
+            take_profit_hits = []
+            max_hold_time_hits = []
+            position_sizes = []
+            time_st = []
+            last_signal = 0
 
-    def backtest(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Enhanced backtesting with detailed performance tracking and risk management."""
-        self.logger.info(f"Starting backtest for OBI VWAP Strategy with initial cash: ${self.cash:,.2f}")
-        
-        # Calculate all indicators and add them to the DataFrame
-        df = self.calculate_vwap(df)
-        df = self.calculate_price_impact(df)
-        df = self.calculate_momentum_indicators(df)
-        df = self.calculate_volatility(df)
-        df = self.calculate_market_regime(df)
-        df = self.calculate_signal_quality(df)
-        df = self.generate_signals(df)
-        
-        account_balance = []
-        positions = []
-        trades = []
-        entry_prices = []
-        position_hold_times = []
-        unrealized_pnl_values = []
-        unrealized_pnl_pct_values = []
-        trade_markers = []  # 1 for entry, -1 for exit, 0 for no trade
-        stop_loss_hits = []
-        take_profit_hits = []
-        position_sizes = []
-        last_signal = 0
-        self.position_hold_time = 0 # Initialize position hold time
-        
-        for i, row in enumerate(df.iter_rows(named=True)):
-            signal = row["Signal"]
-            mid_price = row["MID_PRICE"]
-            current_portfolio = self.cash + (self.position * mid_price if self.position != 0 else 0)
-            
-            # Calculate position size for this row (for plotting)
-            position_size = min(
-                int(current_portfolio * self.risk_per_trade / (mid_price + 1e-8)),
-                self.max_position
-            )
-            position_sizes.append(position_size)
-            
-            # Default trade marker and event flags
-            trade_marker = 0
-            stop_loss_hit = 0
-            take_profit_hit = 0
-            
-            # Track entry price for this row
-            entry_prices.append(self.entry_price if self.position != 0 else None)
-            position_hold_times.append(self.position_hold_time if self.position != 0 else 0)
-            
-            # Process existing position
-            if self.position != 0 and self.entry_price not in (None, 0):
-                unrealized_pnl = (mid_price - self.entry_price) * self.position
-                unrealized_pnl_pct = unrealized_pnl / (self.entry_price * abs(self.position))
-                
-                # Increment position hold time
-                self.position_hold_time += 1
-                
-                # Log position status
-                self.logger.debug(f"Current position: {self.position}, Unrealized P&L: ${unrealized_pnl:,.2f} ({unrealized_pnl_pct:.2%})")
-                
-                # Check stop loss
-                if (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
-                   (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
-                    # Close position due to stop loss
-                    if self.position > 0:
-                        self.cash += row["bid"] * self.position
-                        exit_price = row["bid"]
-                    else:
-                        self.cash -= row["ask"] * abs(self.position)
-                        exit_price = row["ask"]
-                    
-                    trades.append(("Stop Loss", self.position, self.entry_price, exit_price))
-                    trade_marker = -1
-                    stop_loss_hit = 1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
-                
-                # Check take profit
-                elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
-                     (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
-                    # Close position due to take profit
-                    if self.position > 0:
-                        self.cash += row["bid"] * self.position
-                        exit_price = row["bid"]
-                    else:
-                        self.cash -= row["ask"] * abs(self.position)
-                        exit_price = row["ask"]
-                    
-                    trades.append(("Take Profit", self.position, self.entry_price, exit_price))
-                    trade_marker = -1
-                    take_profit_hit = 1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
-            
-            # Store unrealized PnL values for this timestep
-            if self.position != 0 and self.entry_price not in (None, 0):
-                unrealized_pnl_values.append(unrealized_pnl)
-                unrealized_pnl_pct_values.append(unrealized_pnl_pct)
-            else:
-                unrealized_pnl_values.append(0)
-                unrealized_pnl_pct_values.append(0)
-                
-            # Process new signals only if we haven't already closed due to SL/TP
-            if self.position == 0 and signal != 0 and signal != last_signal:
-                position_size = min(
-                    int(current_portfolio * self.risk_per_trade / (mid_price + 1e-8)),
-                    self.max_position
-                )
+            for i, row in enumerate(df.iter_rows(named=True)):
+                # 1% of account_balance
+                mid_price = row["MID_PRICE"]
+                pos_size = self.calculate_position_size(mid_price, self.cash)
 
+                signal = row["Signal"]
+                time_st.append(row["time_m"])
+
+                # Trading cost per trade
+                trading_cost = 0.05
+
+                # Default trade marker and event flags
+                trade_marker = 0
+                stop_loss_hit = 0
+                take_profit_hit = 0
+                max_hold_time_hit = 0
                 
-                if signal == 1:
-                    # Open long position
-                    if position_size > 0 and self.cash >= row["ask"] * position_size:
-                        self.cash -= row["ask"] * position_size
-                        self.position = position_size
-                        self.entry_price = row["ask"]
-                        trades.append(("Buy", position_size, row["ask"], None))
-                        trade_marker = 1
-                
-                elif signal == -1:
-                    # Open short position
-                    if position_size > 0:
-                        self.cash += row["bid"] * position_size
-                        self.position = -position_size
-                        self.entry_price = row["bid"]
-                        trades.append(("Sell", -position_size, row["bid"], None))
-                        trade_marker = 1
-            
-            # Process signal changes when we have an existing position
-            elif self.position != 0 and signal != 0 and signal != last_signal:
-                if (signal == 1 and self.position < 0) or (signal == -1 and self.position > 0):
-                    # Close existing position due to signal change
-                    if self.position > 0:
-                        self.cash += row["bid"] * self.position
-                        trades.append(("Close Long (Signal Change)", self.position, self.entry_price, row["bid"]))
-                    else:
-                        self.cash -= row["ask"] * abs(self.position)
-                        trades.append(("Close Short (Signal Change)", self.position, self.entry_price, row["ask"]))
-                    
-                    trade_marker = -1
-                    self.position = 0
-                    self.entry_price = 0
-                    self.position_hold_time = 0
-                    
-                    # Now open a new position in the opposite direction
-                    position_size = min(
-                        int(current_portfolio * self.risk_per_trade / (mid_price + 1e-8)),
-                        self.max_position
-                    )
-                    
-                    if signal == 1:
-                        # Open long position
-                        if position_size > 0 and self.cash >= row["ask"] * position_size:
-                            self.cash -= row["ask"] * position_size
-                            self.position = position_size
-                            self.entry_price = row["ask"]
-                            trades.append(("Buy", position_size, row["ask"], None))
-                            trade_marker = 1
-                    else:
-                        # Open short position
-                        if position_size > 0:
-                            self.cash += row["bid"] * position_size
-                            self.position = -position_size
-                            self.entry_price = row["bid"]
-                            trades.append(("Sell", -position_size, row["bid"], None))
-                            trade_marker = 1
-            
-            # Close all positions if signal is 0 and you have an open position
-            elif signal == 0 and self.position != 0:
+                # Calculate unrealized PnL using proper bid/ask prices
                 if self.position > 0:
-                    self.cash += row["bid"] * self.position
-                    trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
+                    unrealized_pnl = (row["bid"] - self.entry_price) * self.position
                 elif self.position < 0:
-                    self.cash -= row["ask"] * abs(self.position)
-                    trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
-                
-                trade_marker = -1
+                    unrealized_pnl = (self.entry_price - row["ask"]) * abs(self.position)
+                else:
+                    unrealized_pnl = 0
+                unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
+
+                # Process existing position
+                if self.position != 0 and self.entry_price not in (None, 0):
+                    self.position_hold_time += 1
+                    # Max hold time
+                    if self.position_hold_time >= self.max_hold_time:
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position - trading_cost
+                            trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["bid"]))
+                        else:
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
+                            trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                        max_hold_time_hit = 1
+                        self.position = 0
+                        self.entry_price = 0
+                        self.position_hold_time = 0
+                    # Stop loss
+                    elif (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
+                        (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position - trading_cost
+                            trades.append(("Stop Loss", self.position, self.entry_price, row["bid"]))
+                        else:
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
+                            trades.append(("Stop Loss", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                        stop_loss_hit = 1
+                        self.position = 0
+                        self.entry_price = 0
+                        self.position_hold_time = 0
+                    # Take profit
+                    elif (self.position > 0 and unrealized_pnl_pct >= self.profit_target_pct/100) or \
+                        (self.position < 0 and unrealized_pnl_pct <= -self.profit_target_pct/100):
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position - trading_cost
+                            trades.append(("Take Profit", self.position, self.entry_price, row["bid"]))
+                        else:
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
+                            trades.append(("Take Profit", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                        take_profit_hit = 1
+                        self.position = 0
+                        self.entry_price = 0
+                        self.position_hold_time = 0
+
+                # Process new signals
+                if signal != 0 and signal != last_signal:
+                    if signal == 1 and self.position <= 0:
+                        # Close any existing short position
+                        if self.position < 0:
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
+                            trades.append(("Close Short", self.position, self.entry_price, row["ask"]))
+                            trade_marker = -1
+                            self.position = 0
+                            self.entry_price = 0
+                            self.position_hold_time = 0
+                        # Open long position
+                        if pos_size > 0 and self.cash >= row["ask"] * pos_size + trading_cost:
+                            self.cash -= row["ask"] * pos_size + trading_cost
+                            self.position = pos_size
+                            self.entry_price = row["ask"]
+                            trades.append(("Buy", pos_size, row["ask"], None))
+                            trade_marker = 1
+                            self.position_hold_time = 0
+                    elif signal == -1 and self.position >= 0:
+                        # Close any existing long position
+                        if self.position > 0:
+                            self.cash += row["bid"] * self.position - trading_cost
+                            trades.append(("Close Long", self.position, self.entry_price, row["bid"]))
+                            trade_marker = -1
+                            self.position = 0
+                            self.entry_price = 0
+                            self.position_hold_time = 0
+                        # Open short position
+                        if pos_size > 0:
+                            self.cash += row["bid"] * pos_size - trading_cost
+                            self.position = -pos_size
+                            self.entry_price = row["bid"]
+                            trades.append(("Sell", -pos_size, row["bid"], None))
+                            trade_marker = 1
+                            self.position_hold_time = 0
+                # Close all positions if signal is 0 and you have an open position
+                elif signal == 0 and self.position != 0:
+                    if self.position > 0:
+                        self.cash += row["bid"] * self.position - trading_cost
+                        trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
+                        trade_marker = -1
+                    elif self.position < 0:
+                        self.cash -= row["ask"] * abs(self.position) + trading_cost
+                        trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
+                        trade_marker = -1
+                    self.position = 0
+                    self.entry_price = 0
+                    self.position_hold_time = 0
+
+                # Update tracking variables with proper bid/ask pricing
+                if self.position != 0:
+                    # calculate balance with current position using bid/ask price
+                    if self.position > 0:
+                        current_balance = self.cash + (self.position * row["bid"])
+                    else:
+                        current_balance = self.cash + (self.position * row["ask"])
+                else:
+                    current_balance = self.cash
+                account_balance.append(current_balance)
+                positions.append(self.position)
+                trade_markers.append(trade_marker)
+                stop_loss_hits.append(stop_loss_hit)
+                take_profit_hits.append(take_profit_hit)
+                max_hold_time_hits.append(max_hold_time_hit)
+                position_sizes.append(pos_size)
+                entry_prices.append(self.entry_price)
+                last_signal = signal
+            # --- Ensure all positions are closed at EOD ---
+            if self.position != 0:
+                # Use the last row's bid/ask for closing
+                last_row = row
+                if self.position > 0:
+                    self.cash += last_row["bid"] * self.position - trading_cost
+                    trades.append(("EOD Close Long", self.position, self.entry_price, last_row["bid"]))
+                    trade_marker = -1
+                elif self.position < 0:
+                    self.cash -= last_row["ask"] * abs(self.position) + trading_cost
+                    trades.append(("EOD Close Short", self.position, self.entry_price, last_row["ask"]))
+                    trade_marker = -1
                 self.position = 0
                 self.entry_price = 0
                 self.position_hold_time = 0
-            
-            # Track trade events
-            trade_markers.append(trade_marker)
-            stop_loss_hits.append(stop_loss_hit)
-            take_profit_hits.append(take_profit_hit)
-            
-            # Update tracking variables
-            current_balance = self.cash + (self.position * mid_price if self.position != 0 else 0)
-            account_balance.append(current_balance)
-            positions.append(self.position)
-            last_signal = signal
-            
-        # Add metrics columns
-        df = df.with_columns([
-            pl.Series("Account_Balance", [float(x) for x in account_balance]),
-            pl.Series("Position", [float(x) for x in positions]),
-            pl.Series("Entry_Price", [float(x) if x is not None else float('nan') for x in entry_prices]),
-            pl.Series("Position_Hold_Time", [float(x) for x in position_hold_times]),
-            pl.Series("Position_Size", [float(x) for x in position_sizes]),
-            pl.Series("Unrealized_PnL", [float(x) for x in unrealized_pnl_values]),
-            pl.Series("Unrealized_PnL_Pct", [float(x) for x in unrealized_pnl_pct_values]),
-            pl.Series("Trade_Marker", [float(x) for x in trade_markers]),
-            pl.Series("Stop_Loss_Hit", [float(x) for x in stop_loss_hits]),
-            pl.Series("Take_Profit_Hit", [float(x) for x in take_profit_hits])
-        ])
-        
-        # Calculate returns and metrics
-        df = df.with_columns([
-            pl.col("Account_Balance").pct_change().alias("Returns")
-        ])
-        
-        df = df.with_columns(
-            pl.col("Account_Balance").rolling_max(window_size=self.vwap_window).alias("Peak_Value")
-        )
-        
-        df = df.with_columns(
-            ((pl.col("Peak_Value") - pl.col("Account_Balance")) / pl.col("Peak_Value")).alias("Drawdown")
-        )
-        
-        # Calculate performance metrics
-        avg_daily_return = df.select(pl.col("Returns").mean()).item()
-        std_daily_return = df.select(pl.col("Returns").std()).item()
-        max_drawdown = df.select(pl.col("Drawdown").max()).item()
+                # Instead of appending, update the last values in the tracking lists
+                if len(account_balance) > 0:
+                    account_balance[-1] = self.cash
+                    positions[-1] = 0
+                    trade_markers[-1] = trade_marker
+                    stop_loss_hits[-1] = 0
+                    take_profit_hits[-1] = 0
+                    max_hold_time_hits[-1] = 0
+                    position_sizes[-1] = 0
+                    entry_prices[-1] = 0
+                    time_st[-1] = last_row["time_m"]
+            # Add all tracked metrics and indicators to DataFrame for plotting
+            metrics_df = pl.DataFrame({
+                "Account_Balance": [float(x) for x in account_balance],
+                "Time": time_st,
+                "Position": [float(x) for x in positions],
+                "Entry_Price": [float(x) if x is not None else float('nan') for x in entry_prices],
+                "Position_Size": [float(x) for x in position_sizes],
+                "Trade_Marker": [float(x) for x in trade_markers],
+                "Stop_Loss_Hit": [float(x) for x in stop_loss_hits],
+                "Take_Profit_Hit": [float(x) for x in take_profit_hits],
+                "Max_Hold_Time_Hit": [float(x) for x in max_hold_time_hits]
+            })
+            df = df.hstack(metrics_df)
 
+            #convert Time to datetime
+            df = df.with_columns(
+                pl.col("Time").str.strptime(pl.Time, format="%H:%M:%S%.6f")
+            )
 
+            # Log summary using the common format
+            intraday_info = log_backtest_summary(
+                strategy_name="OBI VWAP Strategy",
+                account_balance=account_balance,
+                logger=self.logger,
+                num_ticks=len(df),
+                df=df,
+                date=date
+            )
+            final_returns.append(intraday_info)
+            final_df.append(df)
         
-        # Log summary using the common format
-        log_backtest_summary(
-            strategy_name="OBI VWAP Strategy",
-            account_balance=account_balance,
-            trades=trades,
-            avg_return=avg_daily_return,         # Now per-tick return
-            std_return=std_daily_return,         # Now per-tick std
-            max_drawdown=max_drawdown,
-            logger=self.logger,
-            num_ticks=len(df),                   # Total rows = ticks
-            num_days = 1
-
-        )
-        return df
+        return final_df, final_returns
 

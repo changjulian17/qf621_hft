@@ -227,6 +227,8 @@ class MeanReversionStrategy:
                 signal = row["Signal"]
                 time_st.append(row["time_m"])
 
+                # Trading cost per trade
+                trading_cost = 0.05
 
                 # Default trade marker and event flags
                 trade_marker = 0
@@ -248,10 +250,10 @@ class MeanReversionStrategy:
                     # Max hold time
                     if self.position_hold_time >= self.max_hold_time:
                         if self.position > 0:
-                            self.cash += row["bid"] * self.position
+                            self.cash += row["bid"] * self.position - trading_cost
                             trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["bid"]))
                         else:
-                            self.cash -= row["ask"] * abs(self.position)
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
                             trades.append(("Max Hold Time Hit", self.position, self.entry_price, row["ask"]))
                         trade_marker = -1
                         max_hold_time_hit = 1
@@ -262,10 +264,10 @@ class MeanReversionStrategy:
                     elif (self.position > 0 and unrealized_pnl_pct <= -self.stop_loss_pct/100) or \
                         (self.position < 0 and unrealized_pnl_pct >= self.stop_loss_pct/100):
                         if self.position > 0:
-                            self.cash -=  row["ask"] * self.position
+                            self.cash -= row["ask"] * self.position + trading_cost
                             trades.append(("Stop Loss", self.position, self.entry_price, row["ask"]))
                         else:
-                            self.cash += row["bid"] * abs(self.position)
+                            self.cash += row["bid"] * abs(self.position) - trading_cost
                             trades.append(("Stop Loss", self.position, self.entry_price, row["bid"]))
                         trade_marker = -1
                         stop_loss_hit = 1
@@ -276,10 +278,10 @@ class MeanReversionStrategy:
                     elif (self.position > 0) or \
                         (self.position < 0):
                         if self.position > 0:
-                            self.cash += row["bid"] * self.position
+                            self.cash += row["bid"] * self.position - trading_cost
                             trades.append(("Take Profit", self.position, self.entry_price, row["bid"]))
                         else:
-                            self.cash -= row["ask"] * abs(self.position)
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
                             trades.append(("Take Profit", self.position, self.entry_price, row["ask"]))
                         trade_marker = -1
                         take_profit_hit = 1
@@ -292,15 +294,15 @@ class MeanReversionStrategy:
                     if signal == 1 and self.position <= 0:
                         # Close any existing short position
                         if self.position < 0:
-                            self.cash -= row["ask"] * abs(self.position)
+                            self.cash -= row["ask"] * abs(self.position) + trading_cost
                             trades.append(("Close Short", self.position, self.entry_price, row["ask"]))
                             trade_marker = -1
                             self.position = 0
                             self.entry_price = 0
                             self.position_hold_time = 0
                         # Open long position
-                        if pos_size > 0 and self.cash >= row["ask"] * pos_size:
-                            self.cash -= row["ask"] * pos_size
+                        if pos_size > 0 and self.cash >= row["ask"] * pos_size + trading_cost:
+                            self.cash -= row["ask"] * pos_size + trading_cost
                             self.position = pos_size
                             self.entry_price = row["ask"]
                             trades.append(("Buy", pos_size, row["ask"], None))
@@ -309,7 +311,7 @@ class MeanReversionStrategy:
                     elif signal == -1 and self.position >= 0:
                         # Close any existing long position
                         if self.position > 0:
-                            self.cash += row["bid"] * self.position
+                            self.cash += row["bid"] * self.position - trading_cost
                             trades.append(("Close Long", self.position, self.entry_price, row["bid"]))
                             trade_marker = -1
                             self.position = 0
@@ -317,7 +319,7 @@ class MeanReversionStrategy:
                             self.position_hold_time = 0
                         # Open short position
                         if pos_size > 0:
-                            self.cash += row["bid"] * pos_size
+                            self.cash += row["bid"] * pos_size - trading_cost
                             self.position = -pos_size
                             self.entry_price = row["bid"]
                             trades.append(("Sell", -pos_size, row["bid"], None))
@@ -326,11 +328,11 @@ class MeanReversionStrategy:
                 # Close all positions if signal is 0 and you have an open position
                 elif signal == 0 and self.position != 0:
                     if self.position > 0:
-                        self.cash += row["bid"] * self.position
+                        self.cash += row["bid"] * self.position - trading_cost
                         trades.append(("Close Long (Signal 0)", self.position, self.entry_price, row["bid"]))
                         trade_marker = -1
                     elif self.position < 0:
-                        self.cash -= row["ask"] * abs(self.position)
+                        self.cash -= row["ask"] * abs(self.position) + trading_cost
                         trades.append(("Close Short (Signal 0)", self.position, self.entry_price, row["ask"]))
                         trade_marker = -1
                     self.position = 0
@@ -355,6 +357,33 @@ class MeanReversionStrategy:
                 position_sizes.append(pos_size)
                 entry_prices.append(self.entry_price)
                 last_signal = signal
+
+            # --- Ensure all positions are closed at EOD ---
+            if self.position != 0:
+                # Use the last row's bid/ask for closing
+                last_row = row
+                if self.position > 0:
+                    self.cash += last_row["bid"] * self.position - trading_cost
+                    trades.append(("EOD Close Long", self.position, self.entry_price, last_row["bid"]))
+                    trade_marker = -1
+                elif self.position < 0:
+                    self.cash -= last_row["ask"] * abs(self.position) + trading_cost
+                    trades.append(("EOD Close Short", self.position, self.entry_price, last_row["ask"]))
+                    trade_marker = -1
+                self.position = 0
+                self.entry_price = 0
+                self.position_hold_time = 0
+                # Instead of appending, update the last values in the tracking lists
+                if len(account_balance) > 0:
+                    account_balance[-1] = self.cash
+                    positions[-1] = 0
+                    trade_markers[-1] = trade_marker
+                    stop_loss_hits[-1] = 0
+                    take_profit_hits[-1] = 0
+                    max_hold_time_hits[-1] = 0
+                    position_sizes[-1] = 0
+                    entry_prices[-1] = 0
+                    time_st[-1] = last_row["time_m"]
 
             # Add all tracked metrics and indicators to DataFrame for plotting
             metrics_df = pl.DataFrame({
@@ -384,7 +413,7 @@ class MeanReversionStrategy:
                 logger=self.logger,
                 num_ticks=len(df),
                 df=df,
-                num_days = 1
+                date=date
             )
             final_returns.append(intraday_info)
             final_df.append(df)

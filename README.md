@@ -143,6 +143,62 @@ data/
 
 ---
 
+## Analysis Features
+
+1. **Log Analysis**
+   - Analyze backtesting logs to extract performance metrics for each ticker and strategy combination.
+   - Calculate portfolio-level performance metrics such as total return, Sharpe ratio, and maximum drawdown.
+   - Compare strategy correlations to identify diversification benefits.
+
+2. **Interactive Visualization**
+   - Generate interactive Plotly visualizations for easier analysis and exploration of results.
+   - Visualize strategy correlations through heatmaps.
+   - Create cumulative returns plots to compare strategy performance over time.
+   - Plot intraday trading signals and patterns for detailed analysis.
+
+3. **Intraday Analysis**
+   - Analyze parquet files from backtest results to identify intraday trading patterns.
+   - Visualize price movements, trading signals, volume analysis, and order book imbalance.
+   - Compare actual trades with theoretical signals to improve strategy performance.
+
+---
+
+## Using the Analysis Tools
+
+The analysis script has been enhanced with a command-line interface that supports both log analysis and intraday signal analysis:
+
+```bash
+# Basic log analysis
+python src/analyze_logs.py --logs-dir logs --output-dir analysis_results
+
+# Intraday signal analysis for a specific ticker
+python src/analyze_logs.py --intraday-analysis --parquet-path data/parquet --ticker AAPL
+
+# Analyze a specific date
+python src/analyze_logs.py --intraday-analysis --parquet-path data/parquet --ticker AAPL --date 2023-05-30
+```
+
+### Command-Line Arguments
+
+- `--logs-dir`: Directory containing log files to analyze (default: logs)
+- `--output-dir`: Directory for output analysis results (default: analysis_results)
+- `--intraday-analysis`: Flag to perform intraday signal analysis
+- `--parquet-path`: Path to parquet file or directory for intraday analysis
+- `--ticker`: Specific ticker to analyze for intraday patterns
+- `--date`: Specific date to analyze (format: YYYY-MM-DD)
+
+### Required Packages
+
+To use the interactive plotting features, ensure you have installed the required packages:
+
+```bash
+pip install plotly kaleido
+```
+
+The `kaleido` package is required for saving static images of Plotly figures.
+
+---
+
 ## Notes & Next Steps
 
 - Try running the strategy on a single stock (e.g., AAPL) for a long period and experiment with OBI and VWAP parameters.
@@ -176,4 +232,4 @@ MIT License
 ---
 
 1. Why we chose the stocks taht we did. We tested all 500 on 2 days of data. Then we found 46 and then do insample. 
-2. different prices between exchanges, timing of profitabliity, market depth and availablility. 
+2. different prices between exchanges, timing of profitabliity, market depth and availablility.

@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 def log_backtest_summary(strategy_name: str, account_balance: list, 
-                         logger: logging.Logger, num_ticks: int, df,  num_days):
+                         logger: logging.Logger, num_ticks: int, df,  date: str) -> dict:
     """Logs summary metrics adjusted for tick-based Sharpe."""
     
     # Calculate metrics based on StrategyPortfolio implementation
@@ -17,7 +17,7 @@ def log_backtest_summary(strategy_name: str, account_balance: list,
     # calculate minute by  minute returns
     # group by minute bins and calculate returns
     df = df.with_columns([
-        ("2024-06-25 " + pl.col("Time").cast(pl.Utf8))
+        (date + pl.col("Time").cast(pl.Utf8))
         .str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S%.6f")
         .alias("timestamp")
     ])
@@ -47,7 +47,6 @@ def log_backtest_summary(strategy_name: str, account_balance: list,
     logger.info(f"Initial Balance: ${initial_balance:,.2f}")
     logger.info(f"Final Balance: ${final_balance:,.2f}")
     logger.info(f"Number of Ticks: {num_ticks}")
-    logger.info(f"Number of Days: {num_days}")
     logger.info(f"Average Return: {avg_return:.4%}")
     logger.info(f"Sharpe Ratio: {sharpe_ratio:.4f}")
     # start time from polars
@@ -158,58 +157,5 @@ class StrategyPortfolio:
             strategy_data = data.clone()
             df[name],results[name] = strategy.backtest(strategy_data, days)
 
-        # Efficiently aggregate Account_Balance and Position columns across all strategies
-        # account_balance_series_list = [
-        #     result["Account_Balance"] for name, result in results.items() if "Account_Balance" in result.columns
-        # ]
-        # position_series_list = [
-        #     result["Position"] for name, result in results.items() if "Position" in result.columns
-        # ]
-
-        # if account_balance_series_list:
-        #     portfolio_account_balance = sum(account_balance_series_list)
-        # else:
-        #     portfolio_account_balance = pl.Series([0.0] * len(data), dtype=pl.Float64)
-
-        # if position_series_list:
-        #     portfolio_positions = sum(position_series_list)
-        # else:
-        #     portfolio_positions = pl.Series([0] * len(data), dtype=pl.Int64)
-
-        # Add portfolio value and position to results
-        # results["Portfolio"] = data.with_columns(
-        #     pl.Series("Portfolio_Value", portfolio_account_balance),
-        #     pl.Series("Position", portfolio_positions)
-        # )
-        
-        # # Calculate portfolio metrics
-        # portfolio_metrics = self.calculate_portfolio_metrics(results["Portfolio"])
-        # results["Metrics"] = portfolio_metrics
-        
         return df, results
-        
-    def calculate_portfolio_metrics(self, portfolio_data: pl.DataFrame) -> dict:
-        """Calculate combined portfolio performance metrics."""
-        returns = portfolio_data["Portfolio_Value"].pct_change()
-        
-        # Calculate metrics
-        total_return = (portfolio_data["Portfolio_Value"][-1] / portfolio_data["Portfolio_Value"][0] - 1) * 100
-        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
-        
-        # Calculate drawdown
-        peak = portfolio_data["Portfolio_Value"].cum_max()
-        drawdown = (portfolio_data["Portfolio_Value"] - peak) / peak
-        max_drawdown = drawdown.min() * 100
-        
-        # Calculate Sortino ratio
-        downside_returns = returns.filter(returns < 0)
-        downside_returns = downside_returns.fill_null(0)  # Handle NaNs
-        sortino_ratio = (returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
-        
-        return {
-            "Total_Return": total_return,
-            "Sharpe_Ratio": sharpe_ratio,
-            "Sortino_Ratio": sortino_ratio,
-            "Max_Drawdown": max_drawdown
-        }
         

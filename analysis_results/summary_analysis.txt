@@ -1,0 +1,38 @@
+Best strategy overall: OBI-VWAP_PARA
+Best average strategy: OBI-VWAP_PARA
+Best stock overall: PARA
+Highest volatility stock: PARA
+Best Sharpe ratio: 29.037625952778406 (PARA - OBI-VWAP_PARA)
+Most effective strategy family overall: OBI-VWAP (mean total return: 3204251.33)
+
+Correlation of total returns between strategies:
+Not enough data to compute correlation.
+
+Top 5 by annualized return:
+stock              strategy  annualized_return
+ PARA         OBI-VWAP_PARA      1.136473e+147
+ ACGL         OBI-VWAP_ACGL      5.700118e+144
+ PARA Inverse-OBI-VWAP_PARA      2.313258e+144
+ ACGL Inverse-OBI-VWAP_ACGL      8.286723e+138
+ ACGL   Mean-Reversion_ACGL      1.332658e+137
+
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP_ACGL   -0.000923
+Inverse-OBI-VWAP_FITB   -0.007248
+Inverse-OBI-VWAP_HBAN    0.000000
+Inverse-OBI-VWAP_NTRS   -1.001179
+Inverse-OBI-VWAP_PARA    0.000000
+Inverse-OBI-VWAP_ZION   -0.248322
+Mean-Reversion_ACGL      0.000000
+Mean-Reversion_FITB      0.000000
+Mean-Reversion_HBAN      0.000000
+Mean-Reversion_NTRS      0.000000
+Mean-Reversion_PARA      0.000000
+Mean-Reversion_ZION     -0.009658
+OBI-VWAP_ACGL            0.000000
+OBI-VWAP_FITB           -0.004826
+OBI-VWAP_HBAN            0.000000
+OBI-VWAP_NTRS            0.000000
+OBI-VWAP_PARA            0.000000
+OBI-VWAP_ZION           -0.009649

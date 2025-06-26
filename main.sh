@@ -3,8 +3,9 @@
 # Configuration
 BATCH_SIZE=6
 MAX_TICKERS=483
-START_DATE="2023-08-01"
-END_DATE="2023-08-30"
+START_YEAR=2023
+START_MONTH=6
+END_MONTH=12
 
 # Clear the positive return tickers file before starting
 > data/positive_return_tickers.txt
@@ -18,25 +19,28 @@ if [ $NUM_TICKERS -gt $MAX_TICKERS ]; then
     NUM_TICKERS=$MAX_TICKERS
 fi
 
-# Process tickers in batches
-for ((i=0; i<$NUM_TICKERS; i+=$BATCH_SIZE)); do
-    # Get batch of tickers
-    BATCH=()
-    for ((j=0; j<$BATCH_SIZE && i+j<$NUM_TICKERS; j++)); do
-        BATCH+=(${TICKERS[i+j]})
-    done
-    
-    echo "Processing batch $((i/BATCH_SIZE + 1)): ${BATCH[@]}"
-    
-    # Run Python script with current batch
-    python main.py \
-        --tickers "${BATCH[@]}" \
-        --start-date "$START_DATE" \
-        --end-date "$END_DATE" \
+for MONTH in $(seq -w $START_MONTH $END_MONTH); do
+    # Get first and last day of the month
+    START_DATE="${START_YEAR}-${MONTH}-01"
+    END_DATE=$(date -d "${START_YEAR}-${MONTH}-01 +1 month -1 day" +"%Y-%m-%d")
 
-    
-    # Optional: Add a small delay between batches
-    sleep 1
+    echo "Processing month: $START_DATE to $END_DATE"
+
+    for ((i=0; i<$NUM_TICKERS; i+=$BATCH_SIZE)); do
+        BATCH=()
+        for ((j=0; j<$BATCH_SIZE && i+j<$NUM_TICKERS; j++)); do
+            BATCH+=(${TICKERS[i+j]})
+        done
+
+        echo "Processing batch $((i/BATCH_SIZE + 1)): ${BATCH[@]}"
+
+        python main.py \
+            --tickers "${BATCH[@]}" \
+            --start-date "$START_DATE" \
+            --end-date "$END_DATE"
+
+        sleep 1
+    done
 done
 
 echo "Processing complete. Results saved in data/positive_return_tickers.txt"

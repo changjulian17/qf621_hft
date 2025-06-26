@@ -198,17 +198,17 @@ if __name__ == "__main__":
 
     for ticker in stock_tickers:
         portfolio = StrategyPortfolio(initial_cash=args.initial_cash, rebalance_threshold=args.rebalance_threshold)
-        # obi_strategy = OBIVWAPStrategy(
-        #     vwap_window=500,
-        #     momentum_window=100,
-        #     volatility_window=50,
-        #     trend_window=20,
-        #     max_position=100,
-        #     start_time=start_time,
-        #     end_time=end_time,
-        #     logger=logger
-        # )
-        # portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.3)
+        obi_strategy = OBIVWAPStrategy(
+            vwap_window=500,
+            momentum_window=100,
+            volatility_window=50,
+            trend_window=20,
+            max_position=100,
+            start_time=start_time,
+            end_time=end_time,
+            logger=logger
+        )
+        portfolio.add_strategy("OBI-VWAP", obi_strategy, weight=0.3)
         
         mean_rev_strategy = MeanReversionStrategy(
             vwap_window=300,
@@ -221,17 +221,15 @@ if __name__ == "__main__":
         )
         portfolio.add_strategy("Mean-Reversion", mean_rev_strategy, weight=0.3)
         
-        # inverse_obi_strategy = InverseOBIVWAPStrategy(
-        #     vwap_window=500,
-        #     momentum_window=100,
-        #     volatility_window=50,
-        #     trend_window=20,
-        #     max_position=100,
-        #     start_time=start_time,
-        #     end_time=end_time,
-        #     logger=logger
-        # )
-        # portfolio.add_strategy("Inverse-OBI-VWAP", inverse_obi_strategy, weight=0.3)
+        inverse_obi_strategy = InverseOBIVWAPStrategy(
+            vwap_window=500,
+            momentum_window=100,
+            max_position=100,
+            start_time=start_time,
+            end_time=end_time,
+            logger=logger
+        )
+        portfolio.add_strategy("Inverse-OBI-VWAP", inverse_obi_strategy, weight=0.3)
         logger.info(f"Processing {ticker}...")
         ticker_data = df.filter(pl.col("sym_root") == ticker)
         logger.info(f"Data for {ticker} contains {ticker_data.shape[0]} records")
@@ -241,27 +239,37 @@ if __name__ == "__main__":
 
         days = ticker_data.select(pl.col("date").unique().sort()).to_series().to_list()
         final_df_ls, final_returns_ls = portfolio.run_backtest(ticker_data, days=days)
+        # print key for final_df_ls and final_returns_ls
+        keys = final_df_ls.keys()
+        logger.info(f"Final DataFrames keys for {ticker}: {keys}")
+
         all_results[ticker] = final_df_ls
         # df columns: ['date', 'time_m', 'time_m_nano', 'ex', 'sym_root', 'sym_suffix', 'bid', 'bidsiz', 'ask', 'asksiz', 'qu_cond', 'qu_seqnum', 'natbbo_ind', 'qu_cancel', 'qu_source', 'rpi', 'ssr', 'luld_bbo_indicator', 'finra_bbo_ind', 'finra_adf_mpid', 'finra_adf_time', 'finra_adf_time_nano', 'finra_adf_mpq_ind', 'finra_adf_mquo_ind', 'sip_message_id', 'natl_bbo_luld', 'part_time', 'part_time_nano', 'secstat_ind', 'Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'Price_Deviation', 'Volatility', 'Volume_MA', 'Volume_Ratio', 'Deviation_MA', 'Mean_Reversion_Score', 'Signal', 'Account_Balance', 'Time', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
         
         # Save backtest results for each strategy
-        date_str = args.start_date
         output_dir = f"data/backtest_results/{ticker}"
         os.makedirs(output_dir, exist_ok=True)
 
-        for name in ['Mean-Reversion']:# ['OBI-VWAP', 'Mean-Reversion', 'Inverse-OBI-VWAP']:
+        for name in ['OBI-VWAP', 'Mean-Reversion', 'Inverse-OBI-VWAP']:
+
             final_df = final_df_ls[name]
             final_results = final_returns_ls[name]
             res_df = pd.DataFrame(columns=['Date', 'Intraday Sharpe Ratio', 'Intraday Profit', 'Intraday Drawdown', 'Intraday Max Return', 'Intraday Final Balance'])
-            for df_in in final_df:
-                cols = ['bid','ask','Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'Price_Deviation', 'Volatility', 'Volume_MA', 'Volume_Ratio', 'Deviation_MA', 'Mean_Reversion_Score', 'Signal', 'Account_Balance', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
+            for df_in,  day in zip(final_df, days):
+                if name == 'Mean-Reversion':
+                    cols = ['bid','ask','Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'Price_Deviation', 'Volatility', 'Volume_MA', 'Volume_Ratio', 'Deviation_MA', 'Mean_Reversion_Score', 'Signal', 'Account_Balance', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
+                elif name == 'Inverse-OBI-VWAP':
+                    cols = ['bid','ask', 'Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'VWAP_STD', 'VWAP_Upper', 'VWAP_Lower', 'Rolling_Median_VWAP', 'Inverse_VWAP', 'Spread', 'Relative_Spread', 'Bid_Pressure', 'Dollar_Volume', 'Bid_Depth_Ratio', 'Ask_Depth_Ratio', 'Price_Impact', 'Rolling_Median_Volume', 'Inverted_Volume', 'Volume_Norm', 'Price_Momentum', 'Volume_Momentum', 'Mean_Reversion_Score', 'OB_RSI', 'Volatility', 'Parkinson_Vol', 'Vol_Adjusted_Vol', 'Raw_OBI', 'Price_Weighted_Volume', 'Time_Weighted_OBI', 'OBI', 'Signal', 'Account_Balance', 'Time', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
+                elif name == 'OBI-VWAP':
+                    cols = ['bid','ask','Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'VWAP_STD', 'VWAP_Upper', 'VWAP_Lower', 'Spread', 'Relative_Spread', 'Bid_Pressure', 'Dollar_Volume', 'Bid_Depth_Ratio', 'Ask_Depth_Ratio', 'Price_Impact', 'Price_Momentum', 'Volume_Momentum', 'Mean_Reversion_Score', 'OB_RSI', 'Volatility', 'Parkinson_Vol', 'Vol_Adjusted_Vol', 'Short_Trend', 'Medium_Trend', 'Long_Trend', 'Uptrend', 'Downtrend', 'High_Vol_Regime', 'Trend_Quality', 'Vol_Quality', 'Spread_Quality', 'Signal_Quality', 'Signal', 'Account_Balance', 'Time', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']                
+                common_cols = ['Volatility', 'Max_Hold_Time_Hit', 'Timestamp', 'Trade_Marker', 'Position', 'Mean_Reversion_Score', 'Entry_Price', 'Account_Balance', 'MID_PRICE', 'Take_Profit_Hit', 'bid', 'Volume', 'ask', 'Signal', 'Position_Size', 'VWAP', 'Stop_Loss_Hit']
                 df_in = df_in.select(cols)
-                file_path = f"{output_dir}/{name}_{ticker}_{date_str}.parquet"
+                file_path = f"{output_dir}/{name}_{ticker}_{day}.parquet"
                 df_in.write_parquet(file_path)
                 logger.info(f"Backtest results for {name} strategy on {ticker} saved to {file_path}")
             
             for result, day in zip(final_results,days):
-                result_file_path = f"{output_dir}/{name}_{ticker}_results_{date_str}.txt"
+                result_file_path = f"{output_dir}/{name}_{ticker}_results.txt"
                 # extract info from result dict
                 intraday_sharpe_ratio = result.get("sharpe_ratio", "N/A")
                 intraday_profit = result.get("profit", "N/A")
