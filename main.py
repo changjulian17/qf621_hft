@@ -1,5 +1,8 @@
 from src.wrds_pull import fetch_taq_data
-from src.strategy import OBIVWAPStrategy, StrategyPortfolio, MeanReversionStrategy, InverseOBIVWAPStrategy
+from src.strategy import StrategyPortfolio
+from src.strats.obi import OBIVWAPStrategy
+from src.strats.mean_reversion import MeanReversionStrategy
+from src.strats.inverse_obi import  InverseOBIVWAPStrategy
 from src.performance import evaluate_strategy_performance
 from src.logger_config import setup_logger
 import polars as pl

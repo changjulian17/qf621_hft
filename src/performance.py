@@ -51,14 +51,14 @@ def evaluate_strategy_performance(data: pd.DataFrame, logger: Optional[logging.L
     metrics['annualized_return'] = annualized_return
 
     # Calculate Sharpe Ratio (assuming risk-free rate of 0)
-    sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)
+    sharpe_ratio = np.mean(returns) / np.std(returns) * 6
     metrics['sharpe_ratio'] = sharpe_ratio
 
     # Calculate Sortino Ratio (downside deviation)
     downside_returns = returns[returns < 0]
     downside_deviation = np.std(downside_returns)
     if downside_deviation != 0:
-        sortino_ratio = (np.mean(returns) - 0) / downside_deviation * np.sqrt(252)
+        sortino_ratio = (np.mean(returns) - 0) / downside_deviation 
     else:
         sortino_ratio = np.nan
     metrics['sortino_ratio'] = sortino_ratio
