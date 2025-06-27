@@ -37,7 +37,10 @@ def log_backtest_summary(strategy_name: str, account_balance: list,
     ).drop_nulls(subset=["returns"])
 
     if df.shape[0] > 1:
-        sharpe_ratio = df["returns"].mean() / df["returns"].std()
+        try:
+            sharpe_ratio = df["returns"].mean() / (df["returns"].std() + 0.0001)
+        except ZeroDivisionError:
+            sharpe_ratio = 0.0
     else:
         sharpe_ratio = 0.0
 
