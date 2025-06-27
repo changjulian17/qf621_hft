@@ -61,6 +61,7 @@ def fetch_taq_data(
           AND time_m BETWEEN '{start_time}' AND '{end_time}'
     """
     start_time_query = time.time()
+    # print(f"Executing query: {query}")
     data = db.raw_sql(query)
     end_time_query = time.time()
     logger.info(f"Data fetched successfully. Query time: {end_time_query - start_time_query:.2f} seconds.")

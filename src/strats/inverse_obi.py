@@ -16,7 +16,7 @@ class InverseOBIVWAPStrategy:
     def __init__(self, vwap_window: int = 500, obi_window: int = 5000,
                  price_impact_window: int = 50, momentum_window: int = 100, volatility_window: int = 50,
                  trend_window: int = 20, max_position: int = 1000,
-                 stop_loss_pct: float = 1, profit_target_pct: float = 1.0, risk_per_trade: float = 1,
+                 stop_loss_pct: float = 1, profit_target_pct: float = 1.0, risk_per_trade: float = 0.01,
                  obi_threshold: float = 0.1,
                  start_time: tuple = (9, 30, 865),
                  end_time: tuple = (16, 28, 954),
@@ -342,7 +342,10 @@ class InverseOBIVWAPStrategy:
         # Risk-based position sizing similar to mean reversion strategy
         risk_amount = current_balance * self.risk_per_trade
         
-        position_size = int((risk_amount / price) / 5) 
+        try:
+            position_size = int((risk_amount / price) / 5) 
+        except:
+            position_size = 1
         if position_size > self.max_position:
             return self.max_position
         elif position_size < 1:
@@ -416,8 +419,10 @@ class InverseOBIVWAPStrategy:
                     unrealized_pnl = (self.entry_price - row["ask"]) * abs(self.position)
                 else:
                     unrealized_pnl = 0
-                unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
-
+                try:
+                    unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
+                except ZeroDivisionError:
+                    unrealized_pnl_pct = 0
                 # Process existing position
                 if self.position != 0 and self.entry_price not in (None, 0):
                     self.position_hold_time += 1

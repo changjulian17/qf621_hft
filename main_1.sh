@@ -11,7 +11,7 @@ END_MONTH=12
 > data/positive_return_tickers.txt
 
 # Read tickers from file
-TICKERS=($(cat data/positive_return_tickers_v1.txt))
+TICKERS=($(cat data/positive_return_tickers_v1_1.txt))
 
 # Calculate number of batches needed
 NUM_TICKERS=${#TICKERS[@]}

@@ -31,7 +31,17 @@ def write_parquet(df: pl.DataFrame, stock: str, date: str, output_dir: str):
 def check_data_exists(ticker: str, date: str, output_dir: str) -> bool:
     """Check if Parquet file for a given ticker and date exists."""
     file_path = f"{output_dir}/{ticker}/{ticker}_{date}.parquet"
-    return os.path.exists(file_path)
+    # if os.path.exists(file_path):
+    #     # read parquet file to check if it is empty
+    #     df = pl.read_parquet(file_path)
+    #     if df.is_empty():
+    #         logger.warning(f"Warning: File {file_path} is empty.")
+    #         return False
+    #     return True
+    # else:
+    #     logger.warning(f"File not found: {file_path}")
+    #     return False
+    return os.path.exists(file_path) 
 
 def read_parquet_for_multiple_stocks_dates(tickers: list, start_date: str, end_date: str, output_dir: str) -> pl.DataFrame:
     """Read Parquet files for multiple stocks and dates into a single Polars DataFrame."""
@@ -102,7 +112,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='High-Frequency Trading Strategy Analysis')
     
     # Data filtering parameters
-    parser.add_argument('--exchanges', default="'Q'", help='Exchange filter')
+    parser.add_argument('--exchanges', default="'Q','N'", help='Exchange filter')
     parser.add_argument('--quote-cond', default="'R'", help='Quote condition filter')
     parser.add_argument('--start-date', default='2023-08-14', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', default='2023-08-14', help='End date (YYYY-MM-DD)')
@@ -203,7 +213,7 @@ if __name__ == "__main__":
             momentum_window=100,
             volatility_window=50,
             trend_window=20,
-            max_position=100,
+            max_position=10,
             start_time=start_time,
             end_time=end_time,
             logger=logger
@@ -238,6 +248,8 @@ if __name__ == "__main__":
         logger.info(f"Running backtest for {ticker}...")
 
         days = ticker_data.select(pl.col("date").unique().sort()).to_series().to_list()
+        # get the month
+        month = days[0].split('-')[1] if days else 'unknown'
         final_df_ls, final_returns_ls = portfolio.run_backtest(ticker_data, days=days)
         # print key for final_df_ls and final_returns_ls
         keys = final_df_ls.keys()
@@ -269,7 +281,6 @@ if __name__ == "__main__":
                 logger.info(f"Backtest results for {name} strategy on {ticker} saved to {file_path}")
             
             for result, day in zip(final_results,days):
-                result_file_path = f"{output_dir}/{name}_{ticker}_results.txt"
                 # extract info from result dict
                 intraday_sharpe_ratio = result.get("sharpe_ratio", "N/A")
                 intraday_profit = result.get("profit", "N/A")
@@ -285,10 +296,11 @@ if __name__ == "__main__":
                     "Intraday Final Balance": [intraday_final_balance]
                 })
                 res_df = pd.concat([res_df, row], ignore_index=True)
+            result_file_path = f"{output_dir}/{name}_{ticker}_results_{month}.txt"
             res_df.to_csv(result_file_path, index=False)
             performance_metrics = evaluate_strategy_performance(res_df, logger=logger)
             # write performance metrics to a file
-            perf_file_path = f"{output_dir}/{name}_{ticker}_performance.txt"
+            perf_file_path = f"{output_dir}/{name}_{ticker}_performance_{month}.txt"
             with open(perf_file_path, 'w') as f:
                 for key, value in performance_metrics.items():
                     f.write(f"{key}: {value}\n")

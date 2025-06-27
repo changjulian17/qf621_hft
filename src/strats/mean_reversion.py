@@ -38,7 +38,7 @@ class MeanReversionStrategy:
                  volatility_window: int = 20, volume_window: int = 20,
                  max_position: int = 100, stop_loss_pct: float = 1,
                  profit_target_pct: float = 2, 
-                 risk_per_trade: float = 0.02, 
+                 risk_per_trade: float = 0.01, 
                  start_time: tuple = (9, 30, 865), end_time: tuple = (16, 28, 954),
                  logger: Optional[logging.Logger] = None):
         """Initialize the mean reversion strategy."""
@@ -132,7 +132,10 @@ class MeanReversionStrategy:
         risk_amount = current_balance * self.risk_per_trade_pct
 
         
-        position_size = int((risk_amount / price) / 5) 
+        try:
+            position_size = int((risk_amount / price) / 5) 
+        except:
+            position_size = 1
         if position_size > self.max_position:
             # logging.warning(f"Position size {position_size} exceeds max position {self.max_position}. Capping to max position.")
             return self.max_position
@@ -242,8 +245,10 @@ class MeanReversionStrategy:
                     unrealized_pnl = (self.entry_price - row["ask"]) * abs(self.position)
                 else:
                     unrealized_pnl = 0
-                unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
-
+                try:
+                    unrealized_pnl_pct =  unrealized_pnl / (self.entry_price * abs(self.position)) if self.position != 0 else 0
+                except ZeroDivisionError:
+                    unrealized_pnl_pct = 0
                 # Process existing position
                 if self.position != 0 and self.entry_price not in (None, 0):
                     self.position_hold_time += 1
