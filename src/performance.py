@@ -51,7 +51,7 @@ def evaluate_strategy_performance(data: pd.DataFrame, logger: Optional[logging.L
     metrics['annualized_return'] = annualized_return
 
     # Calculate Sharpe Ratio (assuming risk-free rate of 0)
-    sharpe_ratio = np.mean(returns) / np.std(returns) * 4
+    sharpe_ratio = np.mean(returns) / np.std(returns)
     metrics['sharpe_ratio'] = sharpe_ratio
 
     # Calculate Sortino Ratio (downside deviation)
@@ -66,13 +66,25 @@ def evaluate_strategy_performance(data: pd.DataFrame, logger: Optional[logging.L
     # Calculate maximum drawdown
     cumulative_returns = np.cumsum(returns)
     peak = np.maximum.accumulate(cumulative_returns)
-    drawdown = (cumulative_returns - peak) / peak
+    try:
+        drawdown = (cumulative_returns - peak) / peak
+    except ZeroDivisionError:
+        drawdown = (cumulative_returns - peak) / (peak + 1e-2)  # Avoid division by zero
+        logger.error("Zero division error in drawdown calculation.")
     max_drawdown = np.min(drawdown)
     metrics['max_drawdown'] = max_drawdown
 
     # Calculate skewness and kurtosis
-    skewness = skew(returns)
-    kurt = kurtosis(returns)
+    try:
+        skewness = skew(returns)
+    except Exception as e:
+        logger.error(f"Error calculating skewness: {e}")
+        skewness = np.nan
+    try:
+        kurt = kurtosis(returns)
+    except Exception as e:
+        logger.error(f"Error calculating kurtosis: {e}")
+        kurt = np.nan
     metrics['skewness'] = skewness
     metrics['kurtosis'] = kurt
     

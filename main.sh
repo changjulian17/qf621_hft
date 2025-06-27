@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-BATCH_SIZE=6
+BATCH_SIZE=3
 MAX_TICKERS=483
 START_YEAR=2023
 START_MONTH=6

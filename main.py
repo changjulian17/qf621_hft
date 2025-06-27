@@ -224,7 +224,7 @@ if __name__ == "__main__":
             vwap_window=300,
             volatility_window=100,
             volume_window=50,
-            max_position=100,
+            max_position=10,
             start_time=start_time,
             end_time=end_time,
             logger=logger
@@ -234,7 +234,7 @@ if __name__ == "__main__":
         inverse_obi_strategy = InverseOBIVWAPStrategy(
             vwap_window=500,
             momentum_window=100,
-            max_position=100,
+            max_position=10,
             start_time=start_time,
             end_time=end_time,
             logger=logger

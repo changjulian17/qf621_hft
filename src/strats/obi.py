@@ -314,6 +314,10 @@ class OBIVWAPStrategy:
         for date in days:
             # Filter DataFrame for the current date
             df = df_fin.filter(pl.col("date") == date)
+            if len(df) > 200_000:
+                # only use every tenth row to reduce size
+                df = df[::10]
+
             self.position_hold_time = 0
             self.position = 0
             self.entry_price = 0
