@@ -596,6 +596,97 @@ def plot_bid_ask_with_signals(parquet_files: list, date: str, stock: str, output
     fig.write_html(output_html)
     print(f"Bid/Ask plot with signals saved to {output_html}")
 
+def plot_bid_ask_vwap_with_signals(parquet_files: list, date: str, stock: str, output_html: str):
+    """
+    Plots bid, ask, and VWAP prices for a given day and stock as three lines.
+    Includes signals as markers for three strategies.
+    """
+    import pandas as pd
+
+    # Collect data for the specified date and stock
+    combined_data = None
+    strategy_signals = {}
+    for pf in parquet_files:
+        file_name = Path(pf).stem
+        strategy, ticker, file_date = file_name.split('_')[:3]
+        if file_date == date and ticker == stock and strategy == 'OBI-VWAP':
+            df = pd.read_parquet(pf)
+            df = clean_bid_ask_data(df)  # Clean the data using Polars
+            if 'Signal' in df.columns and 'bid' in df.columns and 'ask' in df.columns and 'VWAP' in df.columns:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'])  # Ensure Timestamp is properly parsed
+                df = df[df['Timestamp'].dt.date == pd.to_datetime(date).date()]  # Filter data for the specific date
+                if combined_data is None:
+                    # take 45th to 50th percentile of the data
+                    combined_data = df[len(df) * 40 // 100: len(df) * 50 // 100]
+
+    for pf in parquet_files:
+        file_name = Path(pf).stem
+        strategy, ticker, file_date = file_name.split('_')[:3]
+        if file_date == date and ticker == stock:
+            df = pd.read_parquet(pf)
+            df = clean_bid_ask_data(df)  # Clean the data using Polars      
+            if file_date == date and ticker == stock:
+                if strategy not in strategy_signals:
+                    strategy_signals[strategy] = df[len(df) * 40 // 100: len(df) * 50 // 100]['Signal']
+
+    if combined_data is None:
+        print("No data found for the specified date and stock.")
+        return
+
+    # Create plot
+    fig = go.Figure()
+
+    # Plot bid, ask, and VWAP as lines
+    fig.add_trace(go.Scatter(
+        x=combined_data['Timestamp'],
+        y=combined_data['bid'],
+        mode='lines',
+        name='Bid'
+    ))
+    fig.add_trace(go.Scatter(
+        x=combined_data['Timestamp'],
+        y=combined_data['ask'],
+        mode='lines',
+        name='Ask'
+    ))
+    fig.add_trace(go.Scatter(
+        x=combined_data['Timestamp'],
+        y=combined_data['VWAP'],
+        mode='lines',
+        name='VWAP'
+    ))
+
+    # Add signals as markers for each strategy
+    for strategy, signals in strategy_signals.items():
+        buy_signals = combined_data[signals > 0]
+        sell_signals = combined_data[signals < 0]
+        fig.add_trace(go.Scatter(
+            x=buy_signals['Timestamp'],
+            y=buy_signals['bid'],
+            mode='markers',
+            marker=dict(symbol='triangle-up', size=10),
+            name=f'{strategy} - Buy Signal'
+        ))
+        fig.add_trace(go.Scatter(
+            x=sell_signals['Timestamp'],
+            y=sell_signals['ask'],
+            mode='markers',
+            marker=dict(symbol='triangle-down', size=10),
+            name=f'{strategy} - Sell Signal'
+        ))
+
+    # Update layout
+    fig.update_layout(
+        title=f'Bid/Ask/VWAP with Signals for {stock} on {date}',
+        xaxis_title='Timestamp',
+        yaxis_title='Price',
+        legend_title='Signals'
+    )
+
+    # Save plot
+    fig.write_html(output_html)
+    print(f"Bid/Ask/VWAP plot with signals saved to {output_html}")
+
 def clean_bid_ask_data(df: pd.DataFrame, rolling_window: int = 100, mad_threshold: float = 10) -> pd.DataFrame:
     """
     Cleans TAQ bid/ask data from a Parquet file.
@@ -735,3 +826,9 @@ if __name__ == "__main__":
         date_to_plot = "2023-08-14"  # example date, adjust as needed
         stock_to_plot = "JPM"  # example stock, adjust as needed
         plot_bid_ask_with_signals([pr['file'] for pr in parquet_results], date_to_plot, stock_to_plot, os.path.join(folder, f"bid_ask_signals_{stock_to_plot}_{date_to_plot}.html"))
+
+    # Plot bid, ask, and VWAP with signals for a specific date and stock
+    if parquet_results:
+        date_to_plot = "2023-07-14"  # example date, adjust as needed
+        stock_to_plot = "ZION"  # example stock, adjust as needed
+        plot_bid_ask_vwap_with_signals([pr['file'] for pr in parquet_results], date_to_plot, stock_to_plot, os.path.join(folder, f"bid_ask_vwap_signals_{stock_to_plot}_{date_to_plot}.html"))
