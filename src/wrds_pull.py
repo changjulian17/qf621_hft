@@ -61,6 +61,7 @@ def fetch_taq_data(
           AND time_m BETWEEN '{start_time}' AND '{end_time}'
     """
     start_time_query = time.time()
+    # print(f"Executing query: {query}")
     data = db.raw_sql(query)
     end_time_query = time.time()
     logger.info(f"Data fetched successfully. Query time: {end_time_query - start_time_query:.2f} seconds.")
@@ -78,6 +79,54 @@ def fetch_taq_data(
                 .alias("Timestamp")
             ).sort("Timestamp")
 
+    return data
+
+def fetch_avg_daily_volume(
+    tickers,
+    exchanges,
+    start_date,
+    end_date,
+    start_time="09:30:00",
+    end_time="16:00:00",
+    wrds_username='changjulian17',
+    logger: Optional[logging.Logger] = None
+):
+    """
+    Fetch average daily volume for a list of tickers from WRDS TAQM CTM data, filtered by exchange.
+    Accepts tickers and exchanges as list or string, just like fetch_taq_data.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    logger.info("Fetching average daily volume from WRDS...")
+    db = wrds.Connection(wrds_username=wrds_username) if wrds_username else wrds.Connection()
+    # Accept both list and string for tickers/exchanges
+    tickers_str = tickers if isinstance(tickers, str) else ", ".join([f"'{t}'" for t in tickers])
+    exchanges_str = exchanges if isinstance(exchanges, str) else ", ".join([f"'{e}'" for e in exchanges])
+
+    size_query = f"""
+        WITH daily_vol AS (
+            SELECT
+                sym_root,
+                ex,
+                date AS trade_date,
+                SUM(size) AS daily_volume
+            FROM taqm_2023.ctm_2023
+            WHERE sym_root IN ({tickers_str})
+                AND ex IN ({exchanges_str})
+                AND date BETWEEN '{start_date}' AND '{end_date}'
+                AND time_m BETWEEN '{start_time}' AND '{end_time}'
+            GROUP BY sym_root, ex, date
+        )
+        SELECT
+            sym_root,
+            ex,
+            AVG(daily_volume) AS avg_daily_volume
+        FROM daily_vol
+        GROUP BY sym_root, ex;
+    """
+    data = db.raw_sql(size_query)
+    logger.info("Average daily volume fetched successfully.")
     return data
 
 def main():
@@ -107,6 +156,18 @@ def main():
 
     logger.info("\nFirst few rows of fetched data:")
     logger.info(str(data.head()))
+
+    avg_volume_data = fetch_avg_daily_volume(
+        tickers=tickers,
+        exchanges=exchanges,
+        start_date=start_date,
+        end_date=end_date,
+        wrds_username=wrds_username,
+        logger=logger
+    )
+
+    logger.info("\nAverage daily volume data:")
+    logger.info(str(avg_volume_data))
 
 if __name__ == "__main__":
     main()

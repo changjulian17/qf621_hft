@@ -1,0 +1,9 @@
+
+cols = {}
+cols["Mean-Reversion"] = ['bid','ask','Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'Price_Deviation', 'Volatility', 'Volume_MA', 'Volume_Ratio', 'Deviation_MA', 'Mean_Reversion_Score', 'Signal', 'Account_Balance', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
+cols["Inverse-OBI-VWAP"] = ['bid','ask', 'Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'VWAP_STD', 'VWAP_Upper', 'VWAP_Lower', 'Rolling_Median_VWAP', 'Inverse_VWAP', 'Spread', 'Relative_Spread', 'Bid_Pressure', 'Dollar_Volume', 'Bid_Depth_Ratio', 'Ask_Depth_Ratio', 'Price_Impact', 'Rolling_Median_Volume', 'Inverted_Volume', 'Volume_Norm', 'Price_Momentum', 'Volume_Momentum', 'Mean_Reversion_Score', 'OB_RSI', 'Volatility', 'Parkinson_Vol', 'Vol_Adjusted_Vol', 'Raw_OBI', 'Price_Weighted_Volume', 'Time_Weighted_OBI', 'OBI', 'Signal', 'Account_Balance', 'Time', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']
+cols["OBI-VWAP_ALL"] = ['bid','ask','Timestamp', 'MID_PRICE', 'Volume', 'VWAP', 'VWAP_STD', 'VWAP_Upper', 'VWAP_Lower', 'Spread', 'Relative_Spread', 'Bid_Pressure', 'Dollar_Volume', 'Bid_Depth_Ratio', 'Ask_Depth_Ratio', 'Price_Impact', 'Price_Momentum', 'Volume_Momentum', 'Mean_Reversion_Score', 'OB_RSI', 'Volatility', 'Parkinson_Vol', 'Vol_Adjusted_Vol', 'Short_Trend', 'Medium_Trend', 'Long_Trend', 'Uptrend', 'Downtrend', 'High_Vol_Regime', 'Trend_Quality', 'Vol_Quality', 'Spread_Quality', 'Signal_Quality', 'Signal', 'Account_Balance', 'Time', 'Position', 'Entry_Price', 'Position_Size', 'Trade_Marker', 'Stop_Loss_Hit', 'Take_Profit_Hit', 'Max_Hold_Time_Hit']                
+
+# find common columns in cols1, cols2, cols3
+common_cols = set(cols1) & set(cols2) & set(cols3)
+print("Common columns:", common_cols)

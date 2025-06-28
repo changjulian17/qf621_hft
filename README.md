@@ -32,64 +32,204 @@ discussion points:
 
 ## Executive Summary
 
-This project focuses on analyzing high-frequency trading (HFT) strategies using real-world stock market data. It provides tools for data preprocessing, strategy implementation, performance evaluation, and visualization. The goal is to assess the effectiveness of various trading strategies and gain insights into their behavior under different market conditions. The project is modular, allowing users to customize and extend its functionality for their specific needs.
+This project analyzes high-frequency trading (HFT) strategies using real-world stock market data. It provides tools for data preprocessing, strategy implementation, performance evaluation, and visualization. The goal is to assess the effectiveness of various trading strategies and gain insights into their behavior under different market conditions. The project is modular, allowing users to customize and extend its functionality for their specific needs.
+
+---
 
 ## Features
 
-1. **Data Preprocessing**:
-
+1. **Data Preprocessing**
    - Load and filter stock market data from CSV files using the `Polars` library.
    - Apply filters based on exchange codes, quote conditions, and stock tickers.
    - Restrict data to trading hours, ensuring only relevant data is processed.
-2. **Strategy Implementation**:
 
-   - Implements the Order Book Imbalance (OBI) and Volume Weighted Average Price (VWAP) strategy.
+2. **Strategy Implementation**
+   - Implements the Order Book Imbalance (OBI) and Volume Weighted Average Price (VWAP) strategy in [`src/strategy.py`](src/strategy.py).
    - Generates buy/sell signals based on OBI thresholds and VWAP calculations.
    - Signals are dynamically adjusted to ensure no trades occur outside specified trading hours, with parameterizable start and end times.
-3. **Performance Evaluation**:
 
+3. **Performance Evaluation**
    - Backtest strategies on historical data, simulating trades and calculating account balances.
-   - Compute performance metrics such as total returns, maximum drawdown, and daily Sharpe ratios.
-4. **Visualization**:
+   - Compute performance metrics such as total returns, maximum drawdown, daily Sharpe ratios, average bid-ask spread, and cumulative trades.
+   - Compare performance across different exchanges, months, and random trading days.
 
+4. **Visualization**
    - Visualize key metrics, such as account balance over time, to gain insights into strategy performance.
-5. **Parameterization**:
 
+5. **Parameterization**
    - Fully configurable parameters, including trading hours, VWAP window size, and OBI thresholds, to suit various trading scenarios.
+
+---
 
 ## Configurable Parameters
 
-The following parameters can be configured in `main.py` to customize the analysis:
+The following parameters can be configured in `main.py` and other scripts to customize the analysis:
 
-- **`VWAP_WINDOW`**: Rolling window size for VWAP calculation (default: `20`).
-- **`OBI_THRESHOLD`**: Threshold for Order Book Imbalance (OBI) signals (default: `0.05`).
-- **`EX_FILTER`**: Exchange filter to include only rows with the specified exchange code (default: `"Q"`).
+- **`VWAP_WINDOW`**: Rolling window size for VWAP calculation (default: `500`).
+- **`OBI_THRESHOLD`**: Threshold for Order Book Imbalance (OBI) signals (default: `0`).
+- **`EX_FILTER`**: Exchange filter to include only rows with the specified exchange code(s).
 - **`QU_COND_FILTER`**: Quote condition filter to include only rows with the specified quote condition (default: `"R"`).
-- **`START_TIME`**: Start time for generating signals in `(HH, MM, MS)` format (default: `(9, 30, 865)`).
-- **`END_TIME`**: End time for generating signals in `(HH, MM, MS)` format (default: `(16, 28, 954)`).
-- **`DATA_FILE`**: Path to the CSV file containing stock market data (default: `"./data/3_stock_5_trading_days.csv"`).
+- **`START_TIME`**: Start time for generating signals in `(HH, MM)` format (default: `(9, 55)`).
+- **`END_TIME`**: End time for generating signals in `(HH, MM)` format (default: `(15, 36)`).
+- **`DATA_FILE`**: Path to the CSV file containing stock market data.
 
-These parameters allow users to adapt the analysis to different datasets, trading hours, and strategy configurations.
+---
 
 ## Usage
 
-1. **Setup**:
+1. **Setup**
 
    - Ensure Python 3.11 or higher is installed.
    - Install required dependencies using:
      ```bash
      pip install -r requirements.txt
      ```
-2. **Run the Analysis**:
+
+2. **Run the Analysis**
 
    - Execute the main script:
      ```bash
      python main.py
      ```
-3. **Customize Parameters**:
+   - To compare exchanges, months, or random trading days, run:
+     ```bash
+     python compare_exchanges.py
+     python compare_months.py
+     python compare_dates.py
+     ```
 
-   - Modify the configurable parameters in `main.py` to suit your requirements.
+3. **Customize Parameters**
+
+   - Modify the configurable parameters in the scripts to suit your requirements.
+
+---
 
 ## Data
 
-The `data/` directory contains sample CSV files for testing and analysis:
+The `data/` directory contains:
+- Filtered ticker lists (e.g., `filtered_tickers.txt`, `positive_return_tickers_v1.txt`)
+- Output CSVs with performance metrics for different experiments (e.g., `exchange_comparison_metrics.csv`, `exchange_comparison_metrics_by_month.csv`, `dates_comparison_metrics.csv`)
+
+---
+
+## Project Structure
+
+```
+src/
+    data_loader.py
+    performance.py
+    plot.py
+    select_spy_tickers.py
+    strategy.py
+    wrds_pull.py
+main.py
+compare_exchanges.py
+compare_months.py
+compare_dates.py
+data/
+    filtered_tickers.txt
+    positive_return_tickers_v1.txt
+    ...
+```
+
+---
+
+## Notable Scripts
+
+- **main.py**: Runs the core backtest and saves tickers with positive returns.
+- **compare_exchanges.py**: Compares strategy performance across different exchanges.
+- **compare_months.py**: Compares performance for batches in different calendar months.
+- **compare_dates.py**: Compares performance for batches on random trading days in the first half of 2023.
+
+---
+
+## Analysis Features
+
+1. **Log Analysis**
+   - Analyze backtesting logs to extract performance metrics for each ticker and strategy combination.
+   - Calculate portfolio-level performance metrics such as total return, Sharpe ratio, and maximum drawdown.
+   - Compare strategy correlations to identify diversification benefits.
+
+2. **Interactive Visualization**
+   - Generate interactive Plotly visualizations for easier analysis and exploration of results.
+   - Visualize strategy correlations through heatmaps.
+   - Create cumulative returns plots to compare strategy performance over time.
+   - Plot intraday trading signals and patterns for detailed analysis.
+
+3. **Intraday Analysis**
+   - Analyze parquet files from backtest results to identify intraday trading patterns.
+   - Visualize price movements, trading signals, volume analysis, and order book imbalance.
+   - Compare actual trades with theoretical signals to improve strategy performance.
+
+---
+
+## Using the Analysis Tools
+
+The analysis script has been enhanced with a command-line interface that supports both log analysis and intraday signal analysis:
+
+```bash
+# Basic log analysis
+python src/analyze_logs.py --logs-dir logs --output-dir analysis_results
+
+# Intraday signal analysis for a specific ticker
+python src/analyze_logs.py --intraday-analysis --parquet-path data/parquet --ticker AAPL
+
+# Analyze a specific date
+python src/analyze_logs.py --intraday-analysis --parquet-path data/parquet --ticker AAPL --date 2023-05-30
+```
+
+### Command-Line Arguments
+
+- `--logs-dir`: Directory containing log files to analyze (default: logs)
+- `--output-dir`: Directory for output analysis results (default: analysis_results)
+- `--intraday-analysis`: Flag to perform intraday signal analysis
+- `--parquet-path`: Path to parquet file or directory for intraday analysis
+- `--ticker`: Specific ticker to analyze for intraday patterns
+- `--date`: Specific date to analyze (format: YYYY-MM-DD)
+
+### Required Packages
+
+To use the interactive plotting features, ensure you have installed the required packages:
+
+```bash
+pip install plotly kaleido
+```
+
+The `kaleido` package is required for saving static images of Plotly figures.
+
+---
+
+## Notes & Next Steps
+
+- Try running the strategy on a single stock (e.g., AAPL) for a long period and experiment with OBI and VWAP parameters.
+- Explore alternative strategies or combine OBI with volume/VWAP.
+- Expand to a larger sample of stocks, including small caps.
+- Analyze trade statistics (e.g., trades per minute) for realism.
+- Compare performance across exchanges and time periods to quantify differences.
+- Investigate why only some tickers have positive returns and the correlation with market characteristics.
+
+---
+
+## Requirements
+
+- Python 3.11+
+- polars
+- pandas_market_calendars (for random trading day selection)
+- matplotlib (for plotting)
+- numpy
+
+Install all requirements with:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## License
+
+MIT License
+
+---
+
+1. Why we chose the stocks taht we did. We tested all 500 on 2 days of data. Then we found 46 and then do insample. 
+2. different prices between exchanges, timing of profitabliity, market depth and availablility.

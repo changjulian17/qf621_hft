@@ -1,0 +1,88 @@
+
+=== Results for Month: 06 ===
+Best strategy: Mean-Reversion
+Best stock: OXY
+Highest volatility stock: APTV
+Best Sharpe ratio: 2.968185445493663 (COF - OBI-VWAP)
+Most effective strategy family: Mean-Reversion (mean total return: 10.27 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP      -1.459296
+Mean-Reversion     -7026.151811
+OBI-VWAP              -0.235557
+
+=== Results for Month: 07 ===
+Best strategy: Mean-Reversion
+Best stock: GS
+Highest volatility stock: GS
+Best Sharpe ratio: 3.0820194989556575 (PSA - Mean-Reversion)
+Most effective strategy family: Mean-Reversion (mean total return: 8.51 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -8.008496
+Mean-Reversion     -0.112555
+OBI-VWAP           -0.125675
+
+=== Results for Month: 08 ===
+Best strategy: Mean-Reversion
+Best stock: OXY
+Highest volatility stock: GS
+Best Sharpe ratio: 3.000888882061718 (PSA - Mean-Reversion)
+Most effective strategy family: Mean-Reversion (mean total return: 11.57 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -0.528046
+Mean-Reversion     -0.292012
+OBI-VWAP           -0.249075
+
+=== Results for Month: 09 ===
+Best strategy: Mean-Reversion
+Best stock: GS
+Highest volatility stock: ZION
+Best Sharpe ratio: 3.8787801917851974 (OXY - Inverse-OBI-VWAP)
+Most effective strategy family: Mean-Reversion (mean total return: 13.00 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -31.493783
+Mean-Reversion      -0.146688
+OBI-VWAP            -4.313234
+
+=== Results for Month: 10 ===
+Best strategy: OBI-VWAP
+Best stock: GS
+Highest volatility stock: GS
+Best Sharpe ratio: 6.443982615901641 (HBAN - Mean-Reversion)
+Most effective strategy family: OBI-VWAP (mean total return: 14.11 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -3.819699
+Mean-Reversion     -0.250249
+OBI-VWAP           -3.163535
+
+=== Results for Month: 11 ===
+Best strategy: OBI-VWAP
+Best stock: PSA
+Highest volatility stock: ALL
+Best Sharpe ratio: 3.883011225379366 (JPM - Mean-Reversion)
+Most effective strategy family: OBI-VWAP (mean total return: 17.63 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -0.019039
+Mean-Reversion     -0.946167
+OBI-VWAP           -0.024037
+
+=== Results for Month: 12 ===
+Best strategy: Mean-Reversion
+Best stock: GS
+Highest volatility stock: MTB
+Best Sharpe ratio: 12.838680527561902 (KEY - Inverse-OBI-VWAP)
+Most effective strategy family: Mean-Reversion (mean total return: 19.86 %)
+Average max drawdown per strategy:
+strategy
+Inverse-OBI-VWAP   -0.080277
+Mean-Reversion     -0.185432
+OBI-VWAP           -0.925694
+
+=== Overall Summary Across All Months ===
+Best strategy overall: OBI-VWAP
+Best stock overall: GS

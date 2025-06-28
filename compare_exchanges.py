@@ -1,16 +1,18 @@
-from src.wrds_pull import fetch_taq_data
-from src.strategy import OBIVWAPStrategy
+# %%
+from src.wrds_pull import fetch_taq_data, fetch_avg_daily_volume
+from src.strategy import OBIVWAPStrategy, MeanReversionStrategy, StrategyPortfolio
 from src.performance import evaluate_strategy_performance
 import polars as pl
 import random
 import gc
 import csv
 import os
-
-EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'"]
-# EXCHANGES = ["'Z'"]
+import logging
+# %%
+EXCHANGES = ["'Z'", "'Q'", "'K'", "'N'", "'T'"]
+# EXCHANGES = ["'Z'", "'Q'"]
 QU_COND_FILTER = "'R'"
-START_DATE = '2023-05-10'
+START_DATE = '2023-01-10'
 END_DATE = '2023-05-10'
 START_TIME = (9, 55)
 END_TIME = (15, 36)
@@ -18,37 +20,7 @@ VWAP_WINDOW = 500
 OBI_THRESHOLD = 0
 SIZE_THRESHOLD = 0
 VWAP_THRESHOLD = 0
-
-def extract_avg_sharpe(metrics):
-    # If metrics contains a 'Sharpe' key, use it directly
-    if "Sharpe" in metrics:
-        return metrics["Sharpe"]
-    # Otherwise, try to extract from 'Daily_Sharpe_Ratios'
-    dsr = metrics.get("Daily_Sharpe_Ratios")
-    if dsr is None:
-        return None
-    # If it's a polars DataFrame or similar, extract the value
-    try:
-        # If dsr is a polars DataFrame
-        if hasattr(dsr, "to_pandas"):
-            df = dsr.to_pandas()
-            return df["Daily_Sharpe_Ratio"].mean()
-        # If dsr is a string representation, try to parse the number
-        elif isinstance(dsr, str):
-            import re
-            vals = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", dsr)]
-            if vals:
-                return sum(vals) / len(vals)
-        # If dsr is a list or array
-        elif hasattr(dsr, "__iter__"):
-            vals = list(dsr)
-            if vals and hasattr(vals[0], "get"):
-                vals = [v.get("Daily_Sharpe_Ratio", 0) for v in vals]
-            return sum(vals) / len(vals)
-    except Exception:
-        return None
-    return None
-
+# %%
 def main():
     # Load tickers
     with open("data/positive_return_tickers_v1.txt") as f:
@@ -56,7 +28,6 @@ def main():
 
     batch_size = 8
     num_batches = 8
-    results = []
 
     for batch_num, batch_start in enumerate(range(0, batch_size * num_batches, batch_size), 1):
         batch = all_filtered[batch_start:batch_start + batch_size]
@@ -74,13 +45,31 @@ def main():
                 quote_conds=QU_COND_FILTER,
                 start_date=START_DATE,
                 end_date=END_DATE,
-                wrds_username='changjulian17'
+                wrds_username='shobhit999'
             )
+            # Query average daily volume for this batch and exchange
+            avg_vol_df = fetch_avg_daily_volume(
+                tickers=batch,
+                exchanges=ex,
+                start_date=START_DATE,
+                end_date=END_DATE,
+                start_time="09:30:00",
+                end_time="16:00:00",
+                wrds_username='shobhit999'
+            )
+            # Build a lookup for (ticker, exchange) -> avg_daily_volume
+            avg_vol_map = {
+                (row['sym_root'], row['ex']): row['avg_daily_volume']
+                for _, row in avg_vol_df.iterrows()
+            }
+
             stock_tickers = df["sym_root"].unique().to_list()
             for ticker in stock_tickers:
                 print(f"Processing {ticker} on exchange {ex}...")
                 ticker_data = df.filter(pl.col("sym_root") == ticker)
-                strategy = OBIVWAPStrategy(
+
+                # --- Run both strategies in a portfolio ---
+                obi_strategy = OBIVWAPStrategy(
                     vwap_window=VWAP_WINDOW, 
                     obi_threshold=OBI_THRESHOLD, 
                     size_threshold=SIZE_THRESHOLD,
@@ -88,30 +77,69 @@ def main():
                     start_time=START_TIME, 
                     end_time=END_TIME
                 )
-                ticker_data = strategy.generate_signals(ticker_data)
-                backtest_data = strategy.backtest(ticker_data)
-                metrics = evaluate_strategy_performance(backtest_data)
-                avg_sharpe = extract_avg_sharpe(metrics)
-                total_trades = backtest_data["Cumulative_Trades"][-1] if "Cumulative_Trades" in backtest_data.columns else None
+                meanrev_strategy = MeanReversionStrategy(
+                    vwap_window=20,
+                    deviation_threshold=0.0001,
+                    volatility_window=20,
+                    volume_window=20,
+                    max_position=100,
+                    stop_loss_pct=0.3,
+                    profit_target_pct=0.6,
+                    risk_per_trade=0.02,
+                    min_profit_threshold=0.001,
+                    start_time=START_TIME,
+                    end_time=END_TIME
+                )
+                portfolio = StrategyPortfolio(initial_cash=100_000)
+                
+                portfolio.add_strategy("OBIVWAP", obi_strategy, weight=0.5)
+                portfolio.add_strategy("MeanReversion", meanrev_strategy, weight=0.5)
+                portfolio_results = portfolio.run_backtest(ticker_data)
+                
+                obi_df = portfolio_results.get("OBIVWAP")
+                meanrev_df = portfolio_results.get("MeanReversion")
+                portfolio_df = portfolio_results.get("Portfolio")
+
+                # Evaluate metrics using your performance function
+                obi_metrics = evaluate_strategy_performance(obi_df)
+                meanrev_metrics = evaluate_strategy_performance(meanrev_df)
+                portfolio_metrics = evaluate_strategy_performance(portfolio_df)
+
+                avg_daily_volume = avg_vol_map.get((ticker, ex.replace("'", "")), None)
+
                 batch_results.append({
+                    "start_date": START_DATE,
+                    "end_date": END_DATE,
                     "ticker": ticker,
                     "exchange": ex.replace("'", ""),
-                    "Total_Returns": metrics.get("Total_Returns"),
-                    "Max_Drawdown": metrics.get("Max_Drawdown"),
-                    "Average_Sharpe": avg_sharpe,
-                    "Average_Bid_Ask_Spread": metrics.get("Average_Bid_Ask_Spread"),
-                    "Cumulative_Trades": total_trades
+                    "OBIVWAP_Returns": obi_metrics.get("Total_Returns"),
+                    "MeanRev_Returns": meanrev_metrics.get("Total_Returns"),
+                    "Portfolio_Returns": portfolio_metrics.get("Total_Returns"),
+                    "OBIVWAP_Sharpe": obi_metrics.get("Average_Sharpe"),
+                    "MeanRev_Sharpe": meanrev_metrics.get("Average_Sharpe"),
+                    "Portfolio_Sharpe": portfolio_metrics.get("Average_Sharpe"),
+                    "OBIVWAP_Avg_Spread": obi_metrics.get("Average_Bid_Ask_Spread"),
+                    "MeanRev_Avg_Spread": meanrev_metrics.get("Average_Bid_Ask_Spread"),
+                    "Portfolio_Avg_Spread": portfolio_metrics.get("Average_Bid_Ask_Spread"),
+                    "OBIVWAP_Trades": obi_metrics.get("Cumulative_Trades"),
+                    "MeanRev_Trades": meanrev_metrics.get("Cumulative_Trades"),
+                    "Portfolio_Trades": portfolio_metrics.get("Cumulative_Trades"),
+                    "avg_daily_volume": avg_daily_volume
                 })
-                del ticker_data, backtest_data
+                del ticker_data
                 gc.collect()
             del df
             gc.collect()
 
-        # Overwrite results after each batch run
+        # Write results after each batch run, append header only if new file
         if batch_results:
             fieldnames = [
-                "ticker", "exchange", "Total_Returns", "Max_Drawdown",
-                "Average_Sharpe", "Average_Bid_Ask_Spread", "Cumulative_Trades"
+                "start_date", "end_date", "ticker", "exchange",
+                "OBIVWAP_Returns", "MeanRev_Returns", "Portfolio_Returns",
+                "OBIVWAP_Sharpe", "MeanRev_Sharpe", "Portfolio_Sharpe",
+                "OBIVWAP_Avg_Spread", "MeanRev_Avg_Spread", "Portfolio_Avg_Spread",
+                "OBIVWAP_Trades", "MeanRev_Trades", "Portfolio_Trades",
+                "avg_daily_volume"
             ]
             file_path = "data/exchange_comparison_metrics.csv"
             write_header = not os.path.exists(file_path) or os.path.getsize(file_path) == 0
@@ -127,3 +155,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+# %%
