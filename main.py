@@ -13,6 +13,7 @@ import itertools
 import argparse
 import pandas as pd
 from typing import Tuple
+import numpy as np
 from datetime import datetime, timedelta
 
 def parse_time(time_str: str) -> Tuple[int, int]:
@@ -42,6 +43,49 @@ def check_data_exists(ticker: str, date: str, output_dir: str) -> bool:
     #     logger.warning(f"File not found: {file_path}")
     #     return False
     return os.path.exists(file_path) 
+
+
+def clean_bid_ask_data(df: pl.DataFrame, rolling_window: int = 100, mad_threshold: float = 10) -> pl.DataFrame:
+    """
+    Cleans TAQ bid/ask data from a Polars DataFrame.
+
+    Args:
+        df (pl.DataFrame): Polars DataFrame containing bid/ask data.
+        rolling_window (int): Rolling window size for median/MAD filter.
+        mad_threshold (float): Threshold in MAD units to detect outliers.
+
+    Returns:
+        pl.DataFrame: Cleaned Polars DataFrame.
+    """
+    # Drop rows with non-positive bids or asks
+    df = df.filter((pl.col("bid") > 0) & (pl.col("ask") > 0))
+
+    # Remove crossed markets (bid > ask)
+    df = df.filter(pl.col("bid") <= pl.col("ask"))
+
+    # Compute mid price
+    df = df.with_columns(((pl.col("bid") + pl.col("ask")) / 2).alias("mid_price"))
+
+    # Compute rolling median and MAD
+    rolling_median = df.select(pl.col("mid_price").rolling_mean(window_size=rolling_window).alias("rolling_median"))
+    mad = df.select(
+        pl.col("mid_price").rolling_map(
+            lambda x: np.median(np.abs(x - np.median(x))), window_size=rolling_window
+        ).alias("mad")
+    )
+
+    # Avoid divide-by-zero MAD
+    mad = mad.with_columns(pl.col("mad").fill_nan(1e-6))
+
+    # Filter out large deviations
+    deviation = (pl.col("mid_price") - rolling_median["rolling_median"]).abs()
+    df = df.filter(deviation < mad["mad"] * mad_threshold)
+
+    # Drop helper columns
+    df = df.drop(["mid_price"])
+
+    return df
+
 
 def read_parquet_for_multiple_stocks_dates(tickers: list, start_date: str, end_date: str, output_dir: str) -> pl.DataFrame:
     """Read Parquet files for multiple stocks and dates into a single Polars DataFrame."""
@@ -98,10 +142,14 @@ def read_parquet_for_multiple_stocks_dates(tickers: list, start_date: str, end_d
                             df = df.with_columns(pl.col(col).cast(dtype, strict=False))
                         except Exception as e:
                             print(f"Warning: Could not cast column {col} in {file_path}: {e}")
+                # Clean bid/ask data
+                df = clean_bid_ask_data(df)
                 all_data.append(df)
             else:
                 print(f"File not found: {file_path}")
         # No need to check schema here, as we enforce it above
+    
+
 
     if all_data:
         return pl.concat(all_data, how="vertical")

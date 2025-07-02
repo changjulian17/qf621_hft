@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-BATCH_SIZE=3
+BATCH_SIZE=1
 MAX_TICKERS=483
 START_YEAR=2023
 START_MONTH=6
@@ -46,3 +46,5 @@ done
 echo "Processing complete. Results saved in data/positive_return_tickers.txt"
 
 python src/results_analyzer.py
+
+python src/backtest_parser.py

@@ -798,8 +798,8 @@ if __name__ == "__main__":
     #     plot_average_monthly_returns_by_stock_and_strategy(perf_files, folder)
 
     # Create bar charts for Sharpe Ratios by stock and strategy
-    # if perf_files:
-    #     plot_average_sharpe_ratios_by_stock_and_strategy(perf_files, folder)
+    if perf_files:
+        plot_average_sharpe_ratios_by_stock_and_strategy(perf_files, folder)
 
     # Create histograms of Intraday Sharpe Ratios
     if results_files:
